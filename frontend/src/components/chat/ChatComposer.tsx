@@ -1,14 +1,22 @@
 import type { FormEvent, KeyboardEvent } from "react"
 import { ArrowUp, Square } from "lucide-react"
 
+import { ModelSettingsPopover } from "@/components/chat/ModelSettingsPopover"
 import { Button } from "@/components/ui/button"
 import { PromptInput, PromptInputActions, PromptInputTextarea } from "@/components/ui/prompt-input"
+import type { ContextUsage, ModelOption, ThinkingLevel } from "@/types/chat"
 
 interface ChatComposerProps {
   value: string
   disabled?: boolean
   isStreaming?: boolean
+  models: ModelOption[]
+  selectedModelId: string
+  thinkingLevel: ThinkingLevel
+  contextUsage: ContextUsage
   onChange: (value: string) => void
+  onModelChange: (modelId: string) => void
+  onThinkingLevelChange: (thinkingLevel: ThinkingLevel) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
   onStop: () => void
 }
@@ -17,7 +25,13 @@ export function ChatComposer({
   value,
   disabled,
   isStreaming,
+  models,
+  selectedModelId,
+  thinkingLevel,
+  contextUsage,
   onChange,
+  onModelChange,
+  onThinkingLevelChange,
   onSubmit,
   onStop,
 }: ChatComposerProps) {
@@ -39,7 +53,18 @@ export function ChatComposer({
           value={value}
         />
         <PromptInputActions>
-          <span className="mr-auto px-2 text-xs text-muted-foreground">Enter 发送 · Shift + Enter 换行</span>
+          <span className="mr-auto hidden px-2 text-xs text-muted-foreground sm:inline">
+            Enter 发送 · Shift + Enter 换行
+          </span>
+          <ModelSettingsPopover
+            contextUsage={contextUsage}
+            disabled={disabled}
+            models={models}
+            onModelChange={onModelChange}
+            onThinkingLevelChange={onThinkingLevelChange}
+            selectedModelId={selectedModelId}
+            thinkingLevel={thinkingLevel}
+          />
           {isStreaming ? (
             <Button aria-label="停止生成" onClick={onStop} size="icon" type="button" variant="outline">
               <Square className="h-3.5 w-3.5 fill-current" />

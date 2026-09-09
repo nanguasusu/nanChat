@@ -1,4 +1,4 @@
-import type { Thread } from "@/types/chat"
+import type { Thread, ThinkingLevel } from "@/types/chat"
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000"
 
@@ -60,6 +60,8 @@ interface StartStreamOptions extends StreamCallbacks {
   conversationKey: string
   threadId: string | null
   message: string
+  model: string
+  thinkingLevel: ThinkingLevel
 }
 
 const activeStreams = new Map<string, AbortController>()
@@ -173,6 +175,8 @@ export function startChatStream({
   conversationKey,
   threadId,
   message,
+  model,
+  thinkingLevel,
   onStart,
   onDelta,
   onReasoning,
@@ -194,7 +198,12 @@ export function startChatStream({
       const response = await fetch(`${API_BASE_URL}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, thread_id: threadId }),
+        body: JSON.stringify({
+          message,
+          thread_id: threadId,
+          model,
+          thinking_level: thinkingLevel,
+        }),
         signal: controller.signal,
       })
 

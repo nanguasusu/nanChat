@@ -1,16 +1,17 @@
 import { useEffect, useState } from "react"
 import type { FormEvent } from "react"
-import { ChevronDown, PanelLeft, Sparkles } from "lucide-react"
+import { PanelLeft, Sparkles } from "lucide-react"
 
 import { ChatComposer } from "@/components/chat/ChatComposer"
 import { MessageList } from "@/components/chat/MessageList"
 import { NotificationToasts } from "@/components/layout/NotificationToasts"
 import { Sidebar } from "@/components/layout/Sidebar"
 import { Button } from "@/components/ui/button"
-import { deleteThread, getThreadMessages, listThreads } from "@/services/chat"
+import { estimateContextUsage } from "@/lib/context"
+import { deleteThread, getThreadMessages, listModels, listThreads } from "@/services/chat"
 import { startChatStream, stopChatStream } from "@/services/stream-manager"
+import { DEFAULT_MODEL, type Message, type Thread, type ThinkingLevel } from "@/types/chat"
 import { NEW_CHAT_KEY, useChatStore } from "@/stores/chat-store"
-import type { Message, Thread } from "@/types/chat"
 
 const EMPTY_MESSAGES: Message[] = []
 
@@ -20,6 +21,7 @@ function createLocalMessageId(prefix: string) {
 
 export function ChatPage() {
   const threads = useChatStore((state) => state.threads)
+  const models = useChatStore((state) => state.models)
   const activeThreadId = useChatStore((state) => state.activeThreadId)
   const activeConversationKey = useChatStore((state) => state.activeConversationKey)
   const messages = useChatStore(
@@ -32,7 +34,12 @@ export function ChatPage() {
     (state) => state.streamStatusByConversation[state.activeConversationKey] ?? "idle",
   )
   const streamStatusByConversation = useChatStore((state) => state.streamStatusByConversation)
+  const modelByConversation = useChatStore((state) => state.modelByConversation)
+  const thinkingLevelByConversation = useChatStore(
+    (state) => state.thinkingLevelByConversation,
+  )
   const setThreads = useChatStore((state) => state.setThreads)
+  const setModels = useChatStore((state) => state.setModels)
   const upsertThread = useChatStore((state) => state.upsertThread)
   const setActiveConversation = useChatStore((state) => state.setActiveConversation)
   const setMessages = useChatStore((state) => state.setMessages)
@@ -49,6 +56,8 @@ export function ChatPage() {
   )
   const setDraft = useChatStore((state) => state.setDraft)
   const setStreamStatus = useChatStore((state) => state.setStreamStatus)
+  const setModel = useChatStore((state) => state.setModel)
+  const setThinkingLevel = useChatStore((state) => state.setThinkingLevel)
   const migrateConversation = useChatStore((state) => state.migrateConversation)
   const removeThread = useChatStore((state) => state.removeThread)
   const addNotification = useChatStore((state) => state.addNotification)
@@ -57,15 +66,27 @@ export function ChatPage() {
   const [loadError, setLoadError] = useState<string | null>(null)
 
   const isStreaming = streamStatus === "streaming"
+  const selectedModelId =
+    modelByConversation[activeConversationKey] ?? models[0]?.id ?? DEFAULT_MODEL.id
+  const selectedModel =
+    models.find((model) => model.id === selectedModelId) ?? models[0] ?? DEFAULT_MODEL
+  const thinkingLevel: ThinkingLevel =
+    thinkingLevelByConversation[activeConversationKey] ?? "medium"
+  const contextUsage = estimateContextUsage(
+    messages,
+    draft,
+    selectedModel.contextWindowTokens,
+  )
 
   useEffect(() => {
     let isMounted = true
 
     void (async () => {
       try {
-        const loadedThreads = await listThreads()
+        const [loadedThreads, loadedModels] = await Promise.all([listThreads(), listModels()])
         if (!isMounted) return
 
+        setModels(loadedModels)
         setThreads(loadedThreads)
         const currentState = useChatStore.getState()
         const hasNewChatWork =
@@ -90,7 +111,7 @@ export function ChatPage() {
     return () => {
       isMounted = false
     }
-  }, [setActiveConversation, setMessages, setThreads])
+  }, [setActiveConversation, setMessages, setModels, setThreads])
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", isDark)
@@ -152,6 +173,8 @@ export function ChatPage() {
 
     const conversationKey = activeConversationKey
     const threadId = activeThreadId
+    const model = selectedModel.id
+    const requestThinkingLevel = thinkingLevel
     const localAssistantMessageId = createLocalMessageId("assistant")
     let streamConversationKey = conversationKey
     let streamAssistantMessageId = localAssistantMessageId
@@ -172,6 +195,8 @@ export function ChatPage() {
       conversationKey,
       threadId,
       message: content,
+      model,
+      thinkingLevel: requestThinkingLevel,
       onStart: (event) => {
         replaceMessageId(
           streamConversationKey,
@@ -274,10 +299,6 @@ export function ChatPage() {
             >
               <PanelLeft className="h-4 w-4" />
             </Button>
-            <Button className="gap-1.5 px-2.5 text-sm font-medium" variant="ghost">
-              <span>LongCat 2.0</span>
-              <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-            </Button>
           </div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Sparkles className="h-3.5 w-3.5" />
@@ -300,7 +321,13 @@ export function ChatPage() {
           <ChatComposer
             disabled={isStreaming}
             isStreaming={isStreaming}
+            models={models}
+            selectedModelId={selectedModel.id}
+            thinkingLevel={thinkingLevel}
+            contextUsage={contextUsage}
             onChange={(value) => setDraft(activeConversationKey, value)}
+            onModelChange={(modelId) => setModel(activeConversationKey, modelId)}
+            onThinkingLevelChange={(level) => setThinkingLevel(activeConversationKey, level)}
             onStop={() => stopChatStream(activeConversationKey)}
             onSubmit={handleSubmit}
             value={draft}

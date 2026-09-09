@@ -7,7 +7,12 @@ from uuid import uuid4
 from fastapi import Request
 from openai import AsyncOpenAI, DefaultAsyncHttpxClient, OpenAIError
 
-from app.core.config import LongCatConfigurationError, LongCatSettings, get_longcat_settings
+from app.core.config import (
+    LongCatConfigurationError,
+    LongCatSettings,
+    get_configured_model,
+    get_longcat_settings,
+)
 from app.schemas.chat import ChatRequest
 from app.services.thread_service import (
     ThreadNotFoundError,
@@ -17,6 +22,19 @@ from app.services.thread_service import (
     list_messages,
     update_thread_title,
 )
+
+
+class UnsupportedModelError(ValueError):
+    """Raised when the client requests a model not configured by the server."""
+
+
+THINKING_TOKEN_BUDGETS = {
+    "off": 1024,
+    "low": 1024,
+    "medium": 2048,
+    "high": 4096,
+    "xhigh": 8192,
+}
 
 
 def _sse(data: dict[str, object]) -> str:
@@ -40,6 +58,11 @@ async def stream_chat_response(
     http_request: Request,
 ) -> AsyncIterator[str]:
     try:
+        configured_model = get_configured_model()
+        model = request.model or configured_model
+        if model != configured_model:
+            raise UnsupportedModelError(model)
+
         title = _title_from_message(request.message)
         if request.thread_id:
             thread = get_thread(request.thread_id)
@@ -68,14 +91,20 @@ async def stream_chat_response(
         stream = None
         try:
             stream = await client.chat.completions.create(
-                model=settings.model,
+                model=model,
                 messages=[
                     {"role": message.role, "content": message.content}
                     for message in history
                 ],
-                max_tokens=1024,
+                max_tokens=THINKING_TOKEN_BUDGETS[request.thinking_level],
                 temperature=0.7,
-                extra_body={"thinking": {"type": "enabled"}},
+                extra_body={
+                    "thinking": {
+                        "type": "enabled"
+                        if request.thinking_level != "off"
+                        else "disabled"
+                    }
+                },
                 stream=True,
             )
             reasoning_parts: list[str] = []
@@ -156,6 +185,14 @@ async def stream_chat_response(
                 "type": "error",
                 "code": "CONFIGURATION_ERROR",
                 "message": "模型服务尚未配置。",
+            }
+        )
+    except UnsupportedModelError:
+        yield _sse(
+            {
+                "type": "error",
+                "code": "MODEL_NOT_SUPPORTED",
+                "message": "所选模型未在后端配置中启用。",
             }
         )
     except OpenAIError:

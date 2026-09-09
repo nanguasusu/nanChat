@@ -10,6 +10,7 @@
 - FastAPI + Pydantic 后端
 - SQLite 持久化 `threads` 和 `messages` 两张表
 - 侧边栏真实会话列表与多会话切换
+- 输入框内的模型选择、思考模式和上下文窗口占用提示
 - `GET /health` 健康检查
 - `POST /api/chat` 通过 SSE 流式调用 LongCat-2.0 的 OpenAI-compatible 接口
 - 亮色/暗色主题切换
@@ -60,7 +61,19 @@ SQLite 数据库默认写入 `backend/data/ai_chat.db`，该目录已加入 Git 
 
 - `GET /api/threads`：读取最近会话
 - `GET /api/threads/{thread_id}/messages`：读取会话消息
+- `GET /api/models`：读取当前后端配置的模型及上下文窗口信息
 - `POST /api/chat`：向指定会话发送 SSE 流；不传 `thread_id` 时才创建新线程
+
+`POST /api/chat` 支持以下可选参数：
+
+```json
+{
+  "model": "LongCat-2.0",
+  "thinking_level": "medium"
+}
+```
+
+LongCat Chat Completions 当前原生提供开启/关闭思考模式。前端提供关闭、低、中、高、极高五档；除关闭/开启外，其余档位通过调整回答 token 预算实现，不伪造 provider 未公开的 reasoning effort 参数。上下文占用是基于当前消息和草稿的前端估算，不写入数据库。
 
 SSE 事件类型包括 `start`、`delta`、`done` 和 `error`。前端的 Stream Manager 按 `thread_id` 维护独立的 `AbortController`，切换会话不会中断后台生成。
 
@@ -80,9 +93,10 @@ docker compose up --build
 
 - `LONGCAT_BASE_URL=https://api.longcat.chat/openai`
 - `LONGCAT_MODEL=LongCat-2.0`
+- `LONGCAT_CONTEXT_WINDOW_TOKENS=1048576`
 - `LONGCAT_API_KEY`
 
-请将密钥写入本地 `backend/.env`，不要提交到 Git。后端通过 OpenAI Python SDK 调用 `POST /openai/v1/chat/completions`，请求使用 `LongCat-2.0`、流式模式和最多 1024 个输出 token。当前 LongCat 客户端会绕过系统代理环境变量，直接访问 API。
+请将密钥写入本地 `backend/.env`，不要提交到 Git。后端通过 OpenAI Python SDK 调用 `POST /openai/v1/chat/completions`，请求使用 `LongCat-2.0` 和流式模式；输出 token 预算会根据思考强度在 1024 到 8192 之间调整。当前 LongCat 客户端会绕过系统代理环境变量，直接访问 API。
 
 ## 目录结构
 
