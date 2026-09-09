@@ -1,0 +1,28 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      CORS_ORIGINS: http://localhost:5173
+      LONGCAT_BASE_URL: https://api.longcat.chat/openai
+      LONGCAT_MODEL: LongCat-2.0
+      SQLITE_DB_PATH: /app/data/ai_chat.db
+    volumes:
+      - backend_data:/app/data
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000
+    depends_on:
+      - backend
+
+volumes:
+  backend_data:

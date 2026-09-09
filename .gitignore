@@ -1,0 +1,19 @@
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.env.local
+
+# Backend
+backend/.venv/
+**/__pycache__/
+*.py[cod]
+backend/.env
+backend/data/*.db
+backend/data/*.db-*
+.env
+
+# Local tooling
+.idea/
+.vscode/
+*.swp
+.DS_Store
