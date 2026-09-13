@@ -3,17 +3,33 @@ import type { FormEvent } from "react"
 import { PanelLeft, Sparkles } from "lucide-react"
 
 import { ChatComposer } from "@/components/chat/ChatComposer"
+import { CitationDrawer } from "@/components/chat/CitationDrawer"
 import { MessageList } from "@/components/chat/MessageList"
 import { NotificationToasts } from "@/components/layout/NotificationToasts"
 import { Sidebar } from "@/components/layout/Sidebar"
+import { SettingsDialog } from "@/components/layout/SettingsDialog"
 import { Button } from "@/components/ui/button"
 import { estimateContextUsage } from "@/lib/context"
-import { deleteThread, getThreadMessages, listModels, listThreads } from "@/services/chat"
+import {
+  deleteThread,
+  getThreadMessages,
+  listModels,
+  listThreads,
+  mapCitation,
+} from "@/services/chat"
 import { startChatStream, stopChatStream } from "@/services/stream-manager"
-import { DEFAULT_MODEL, type Message, type Thread, type ThinkingLevel } from "@/types/chat"
+import {
+  DEFAULT_MODEL,
+  type Citation,
+  type Message,
+  type Thread,
+  type ThinkingLevel,
+} from "@/types/chat"
 import { NEW_CHAT_KEY, useChatStore } from "@/stores/chat-store"
 
 const EMPTY_MESSAGES: Message[] = []
+const QUERY_REWRITE_STORAGE_KEY = "minrag.queryRewriteEnabled"
+const AGENTIC_RAG_STORAGE_KEY = "minrag.agenticRagEnabled"
 
 function createLocalMessageId(prefix: string) {
   return `${prefix}-${crypto.randomUUID()}`
@@ -38,6 +54,9 @@ export function ChatPage() {
   const thinkingLevelByConversation = useChatStore(
     (state) => state.thinkingLevelByConversation,
   )
+  const ragEnabled = useChatStore(
+    (state) => state.ragEnabledByConversation[state.activeConversationKey] ?? false,
+  )
   const setThreads = useChatStore((state) => state.setThreads)
   const setModels = useChatStore((state) => state.setModels)
   const upsertThread = useChatStore((state) => state.upsertThread)
@@ -51,19 +70,32 @@ export function ChatPage() {
   const replaceMessageId = useChatStore((state) => state.replaceMessageId)
   const setMessageStatus = useChatStore((state) => state.setMessageStatus)
   const setMessageStreamPhase = useChatStore((state) => state.setMessageStreamPhase)
+  const appendMessageAgenticStage = useChatStore(
+    (state) => state.appendMessageAgenticStage,
+  )
   const setMessageThinkingDuration = useChatStore(
     (state) => state.setMessageThinkingDuration,
   )
+  const setMessageReferences = useChatStore((state) => state.setMessageReferences)
   const setDraft = useChatStore((state) => state.setDraft)
   const setStreamStatus = useChatStore((state) => state.setStreamStatus)
   const setModel = useChatStore((state) => state.setModel)
   const setThinkingLevel = useChatStore((state) => state.setThinkingLevel)
+  const setRagEnabled = useChatStore((state) => state.setRagEnabled)
   const migrateConversation = useChatStore((state) => state.migrateConversation)
   const removeThread = useChatStore((state) => state.removeThread)
   const addNotification = useChatStore((state) => state.addNotification)
   const [isDark, setIsDark] = useState(false)
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [queryRewriteEnabled, setQueryRewriteEnabled] = useState(
+    () => window.localStorage.getItem(QUERY_REWRITE_STORAGE_KEY) === "true",
+  )
+  const [agenticRagEnabled, setAgenticRagEnabled] = useState(
+    () => window.localStorage.getItem(AGENTIC_RAG_STORAGE_KEY) === "true",
+  )
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [selectedCitation, setSelectedCitation] = useState<Citation | null>(null)
 
   const isStreaming = streamStatus === "streaming"
   const selectedModelId =
@@ -117,8 +149,27 @@ export function ChatPage() {
     document.documentElement.classList.toggle("dark", isDark)
   }, [isDark])
 
+  useEffect(() => {
+    window.localStorage.setItem(
+      QUERY_REWRITE_STORAGE_KEY,
+      String(queryRewriteEnabled),
+    )
+  }, [queryRewriteEnabled])
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      AGENTIC_RAG_STORAGE_KEY,
+      String(agenticRagEnabled),
+    )
+  }, [agenticRagEnabled])
+
+  useEffect(() => {
+    setSelectedCitation(null)
+  }, [activeConversationKey])
+
   const handleNewChat = () => {
     setLoadError(null)
+    setSelectedCitation(null)
     setActiveConversation(NEW_CHAT_KEY, null)
   }
 
@@ -175,6 +226,12 @@ export function ChatPage() {
     const threadId = activeThreadId
     const model = selectedModel.id
     const requestThinkingLevel = thinkingLevel
+    const requestRagEnabled = ragEnabled
+    const requestAgenticRagEnabled = agenticRagEnabled
+    const requestRagMode =
+      requestRagEnabled && requestAgenticRagEnabled ? "agentic" : "standard"
+    const requestQueryRewriteEnabled =
+      requestRagEnabled && requestRagMode === "standard" && queryRewriteEnabled
     const localAssistantMessageId = createLocalMessageId("assistant")
     let streamConversationKey = conversationKey
     let streamAssistantMessageId = localAssistantMessageId
@@ -187,6 +244,7 @@ export function ChatPage() {
       reasoningContent: "",
       streamPhase: "thinking",
       status: "streaming",
+      ragMode: requestRagMode,
     })
     setDraft(conversationKey, "")
     setStreamStatus(conversationKey, "streaming")
@@ -197,6 +255,9 @@ export function ChatPage() {
       message: content,
       model,
       thinkingLevel: requestThinkingLevel,
+      ragEnabled: requestRagEnabled,
+      ragMode: requestRagMode,
+      queryRewriteEnabled: requestQueryRewriteEnabled,
       onStart: (event) => {
         replaceMessageId(
           streamConversationKey,
@@ -235,6 +296,13 @@ export function ChatPage() {
           event.thinking_duration_ms,
         )
       },
+      onAgenticStage: (event) => {
+        appendMessageAgenticStage(
+          streamConversationKey,
+          streamAssistantMessageId,
+          event,
+        )
+      },
       onDone: (event) => {
         setMessageThinkingDuration(
           streamConversationKey,
@@ -242,6 +310,11 @@ export function ChatPage() {
           event.thinking_duration_ms,
         )
         setMessageStatus(streamConversationKey, streamAssistantMessageId, "completed")
+        setMessageReferences(
+          streamConversationKey,
+          streamAssistantMessageId,
+          event.references.map(mapCitation),
+        )
         setStreamStatus(streamConversationKey, "completed")
         upsertThread(event.thread)
         addNotification({
@@ -280,6 +353,7 @@ export function ChatPage() {
         isOpen={isSidebarOpen}
         onDeleteThread={handleDeleteThread}
         onNewChat={handleNewChat}
+        onOpenSettings={() => setIsSettingsOpen(true)}
         onSelectThread={handleSelectThread}
         onToggleTheme={() => setIsDark((value) => !value)}
         streamStatusByConversation={streamStatusByConversation}
@@ -316,6 +390,7 @@ export function ChatPage() {
             conversationKey={activeConversationKey}
             messages={messages}
             onSuggestion={(value) => setDraft(activeConversationKey, value)}
+            onCitationClick={setSelectedCitation}
             isStreaming={isStreaming}
           />
           <ChatComposer
@@ -324,16 +399,30 @@ export function ChatPage() {
             models={models}
             selectedModelId={selectedModel.id}
             thinkingLevel={thinkingLevel}
+            ragEnabled={ragEnabled}
             contextUsage={contextUsage}
             onChange={(value) => setDraft(activeConversationKey, value)}
             onModelChange={(modelId) => setModel(activeConversationKey, modelId)}
             onThinkingLevelChange={(level) => setThinkingLevel(activeConversationKey, level)}
+            onRagEnabledChange={(enabled) => setRagEnabled(activeConversationKey, enabled)}
             onStop={() => stopChatStream(activeConversationKey)}
             onSubmit={handleSubmit}
             value={draft}
           />
         </section>
       </main>
+      <CitationDrawer
+        citation={selectedCitation}
+        onClose={() => setSelectedCitation(null)}
+      />
+      <SettingsDialog
+        agenticRagEnabled={agenticRagEnabled}
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        onAgenticRagEnabledChange={setAgenticRagEnabled}
+        onQueryRewriteEnabledChange={setQueryRewriteEnabled}
+        queryRewriteEnabled={queryRewriteEnabled}
+      />
       <NotificationToasts />
     </div>
   )

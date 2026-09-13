@@ -5,6 +5,8 @@ import {
   type Message,
   type MessageStatus,
   type MessageStreamPhase,
+  type AgenticStageEvent,
+  type Citation,
   type ModelOption,
   type Thread,
   type ThinkingLevel,
@@ -35,6 +37,7 @@ interface ChatState {
   streamStatusByConversation: Record<string, StreamStatus>
   modelByConversation: Record<string, string>
   thinkingLevelByConversation: Record<string, ThinkingLevel>
+  ragEnabledByConversation: Record<string, boolean>
   notifications: ChatNotification[]
   setThreads: (threads: Thread[]) => void
   setModels: (models: ModelOption[]) => void
@@ -59,15 +62,26 @@ interface ChatState {
     messageId: string,
     phase: MessageStreamPhase,
   ) => void
+  appendMessageAgenticStage: (
+    conversationKey: string,
+    messageId: string,
+    event: AgenticStageEvent,
+  ) => void
   setMessageThinkingDuration: (
     conversationKey: string,
     messageId: string,
     durationMs: number,
   ) => void
+  setMessageReferences: (
+    conversationKey: string,
+    messageId: string,
+    references: Citation[],
+  ) => void
   setDraft: (conversationKey: string, draft: string) => void
   setStreamStatus: (conversationKey: string, status: StreamStatus) => void
   setModel: (conversationKey: string, modelId: string) => void
   setThinkingLevel: (conversationKey: string, thinkingLevel: ThinkingLevel) => void
+  setRagEnabled: (conversationKey: string, enabled: boolean) => void
   migrateConversation: (
     fromKey: string,
     toKey: string,
@@ -88,6 +102,7 @@ export const useChatStore = create<ChatState>((set) => ({
   streamStatusByConversation: {},
   modelByConversation: {},
   thinkingLevelByConversation: {},
+  ragEnabledByConversation: {},
   notifications: [],
   setThreads: (threads) => set({ threads }),
   setModels: (models) => set({ models }),
@@ -169,6 +184,21 @@ export const useChatStore = create<ChatState>((set) => ({
         ),
       },
     })),
+  appendMessageAgenticStage: (conversationKey, messageId, event) =>
+    set((state) => ({
+      messagesByConversation: {
+        ...state.messagesByConversation,
+        [conversationKey]: (state.messagesByConversation[conversationKey] ?? []).map(
+          (message) =>
+            message.id === messageId
+              ? {
+                  ...message,
+                  agenticStages: [...(message.agenticStages ?? []), event],
+                }
+              : message,
+        ),
+      },
+    })),
   setMessageThinkingDuration: (conversationKey, messageId, thinkingDurationMs) =>
     set((state) => ({
       messagesByConversation: {
@@ -176,6 +206,15 @@ export const useChatStore = create<ChatState>((set) => ({
         [conversationKey]: (state.messagesByConversation[conversationKey] ?? []).map(
           (message) =>
             message.id === messageId ? { ...message, thinkingDurationMs } : message,
+        ),
+      },
+    })),
+  setMessageReferences: (conversationKey, messageId, references) =>
+    set((state) => ({
+      messagesByConversation: {
+        ...state.messagesByConversation,
+        [conversationKey]: (state.messagesByConversation[conversationKey] ?? []).map(
+          (message) => (message.id === messageId ? { ...message, references } : message),
         ),
       },
     })),
@@ -200,6 +239,13 @@ export const useChatStore = create<ChatState>((set) => ({
       thinkingLevelByConversation: {
         ...state.thinkingLevelByConversation,
         [conversationKey]: thinkingLevel,
+      },
+    })),
+  setRagEnabled: (conversationKey, enabled) =>
+    set((state) => ({
+      ragEnabledByConversation: {
+        ...state.ragEnabledByConversation,
+        [conversationKey]: enabled,
       },
     })),
   migrateConversation: (fromKey, toKey, threadId) =>
@@ -239,6 +285,14 @@ export const useChatStore = create<ChatState>((set) => ({
       }
       delete thinkingLevelByConversation[fromKey]
 
+      const ragEnabledByConversation = { ...state.ragEnabledByConversation }
+      if (fromKey in ragEnabledByConversation) {
+        ragEnabledByConversation[toKey] = ragEnabledByConversation[fromKey]
+      } else {
+        delete ragEnabledByConversation[toKey]
+      }
+      delete ragEnabledByConversation[fromKey]
+
       const isActiveConversation = state.activeConversationKey === fromKey
       return {
         messagesByConversation,
@@ -246,6 +300,7 @@ export const useChatStore = create<ChatState>((set) => ({
         streamStatusByConversation,
         modelByConversation,
         thinkingLevelByConversation,
+        ragEnabledByConversation,
         ...(isActiveConversation
           ? { activeConversationKey: toKey, activeThreadId: threadId }
           : {}),
@@ -258,12 +313,14 @@ export const useChatStore = create<ChatState>((set) => ({
       const streamStatusByConversation = { ...state.streamStatusByConversation }
       const modelByConversation = { ...state.modelByConversation }
       const thinkingLevelByConversation = { ...state.thinkingLevelByConversation }
+      const ragEnabledByConversation = { ...state.ragEnabledByConversation }
 
       delete messagesByConversation[threadId]
       delete drafts[threadId]
       delete streamStatusByConversation[threadId]
       delete modelByConversation[threadId]
       delete thinkingLevelByConversation[threadId]
+      delete ragEnabledByConversation[threadId]
 
       return {
         threads: state.threads.filter((thread) => thread.id !== threadId),
@@ -272,6 +329,7 @@ export const useChatStore = create<ChatState>((set) => ({
         streamStatusByConversation,
         modelByConversation,
         thinkingLevelByConversation,
+        ragEnabledByConversation,
       }
     }),
   addNotification: (notification) =>

@@ -1,13 +1,14 @@
 import { useLayoutEffect, useRef } from "react"
 
 import { MessageBubble } from "@/components/chat/MessageBubble"
-import type { Message } from "@/types/chat"
+import type { Citation, Message } from "@/types/chat"
 
 interface MessageListProps {
   conversationKey: string
   messages: Message[]
   isStreaming: boolean
   onSuggestion: (suggestion: string) => void
+  onCitationClick: (citation: Citation) => void
 }
 
 const suggestions = [
@@ -16,7 +17,13 @@ const suggestions = [
   "给我一个简洁的产品创意",
 ]
 
-export function MessageList({ conversationKey, messages, isStreaming, onSuggestion }: MessageListProps) {
+export function MessageList({
+  conversationKey,
+  messages,
+  isStreaming,
+  onSuggestion,
+  onCitationClick,
+}: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const shouldAutoScrollRef = useRef(true)
   const pendingConversationScrollRef = useRef(false)
@@ -66,7 +73,7 @@ export function MessageList({ conversationKey, messages, isStreaming, onSuggesti
           </div>
           <h1 className="text-center text-2xl font-semibold tracking-tight sm:text-3xl">How can I help you today?</h1>
           <p className="mt-3 max-w-md text-center text-sm leading-6 text-muted-foreground">
-            输入消息后，前端会通过 SSE 接收 LongCat 的实时回复。
+            输入消息后，前端会通过 SSE 接收模型服务的实时回复。
           </p>
           <div className="mt-8 grid w-full max-w-2xl gap-2 sm:grid-cols-3">
             {suggestions.map((suggestion) => (
@@ -84,7 +91,11 @@ export function MessageList({ conversationKey, messages, isStreaming, onSuggesti
       ) : (
         <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col gap-6 px-6 py-8">
           {messages.map((message) => (
-            <MessageBubble key={message.id} message={message} />
+            <MessageBubble
+              key={message.id}
+              message={message}
+              onCitationClick={onCitationClick}
+            />
           ))}
         </div>
       )}

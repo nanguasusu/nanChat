@@ -1,8 +1,9 @@
+import json
 from datetime import datetime, timezone
 from uuid import uuid4
 
 from app.core.database import get_connection
-from app.schemas.thread import MessageResponse, ThreadResponse
+from app.schemas.thread import MessageReference, MessageResponse, ThreadResponse
 
 
 class ThreadNotFoundError(LookupError):
@@ -29,6 +30,10 @@ def _message_from_row(row) -> MessageResponse:
         content=row["content"],
         reasoning_content=row["reasoning_content"],
         thinking_duration_ms=row["thinking_duration_ms"],
+        references=[
+            MessageReference.model_validate(reference)
+            for reference in json.loads(row["references_json"])
+        ],
     )
 
 
@@ -120,17 +125,23 @@ def add_message(
     content: str,
     reasoning_content: str = "",
     thinking_duration_ms: int = 0,
+    references: list[MessageReference] | None = None,
     message_id: str | None = None,
 ) -> MessageResponse:
     message_id = message_id or str(uuid4())
     timestamp = _now()
+    serialized_references = json.dumps(
+        [reference.model_dump(mode="json") for reference in references or []],
+        ensure_ascii=False,
+    )
     with get_connection() as connection:
         connection.execute(
             """
             INSERT INTO messages (
-                id, thread_id, role, content, reasoning_content, thinking_duration_ms, created_at
+                id, thread_id, role, content, reasoning_content, thinking_duration_ms,
+                references_json, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 message_id,
@@ -139,6 +150,7 @@ def add_message(
                 content,
                 reasoning_content,
                 thinking_duration_ms,
+                serialized_references,
                 timestamp,
             ),
         )
@@ -153,6 +165,7 @@ def add_message(
         content=content,
         reasoning_content=reasoning_content,
         thinking_duration_ms=thinking_duration_ms,
+        references=references or [],
     )
 
 
@@ -161,7 +174,7 @@ def list_messages(thread_id: str) -> list[MessageResponse]:
     with get_connection() as connection:
         rows = connection.execute(
             """
-            SELECT id, role, content, reasoning_content, thinking_duration_ms
+            SELECT id, role, content, reasoning_content, thinking_duration_ms, references_json
             FROM messages
             WHERE thread_id = ?
             ORDER BY created_at ASC, rowid ASC

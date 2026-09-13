@@ -2,6 +2,7 @@ import {
   LoaderCircle,
   MessageSquarePlus,
   Moon,
+  Settings,
   Sun,
   Trash2,
 } from "lucide-react"
@@ -19,6 +20,7 @@ interface SidebarProps {
   onDeleteThread: (thread: Thread) => void
   onNewChat: () => void
   onSelectThread: (threadId: string) => void
+  onOpenSettings: () => void
   onToggleTheme: () => void
 }
 
@@ -30,6 +32,7 @@ export function Sidebar({
   threads,
   onDeleteThread,
   onNewChat,
+  onOpenSettings,
   onSelectThread,
   onToggleTheme,
 }: SidebarProps) {
@@ -99,9 +102,14 @@ export function Sidebar({
           <div className="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-xs font-medium">Y</div>
           <span className="text-sm text-muted-foreground">Workspace</span>
         </div>
-        <Button aria-label={isDark ? "切换到亮色主题" : "切换到暗色主题"} onClick={onToggleTheme} size="icon" variant="ghost">
-          {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button aria-label="打开设置" onClick={onOpenSettings} size="icon" variant="ghost">
+            <Settings className="h-4 w-4" />
+          </Button>
+          <Button aria-label={isDark ? "切换到亮色主题" : "切换到暗色主题"} onClick={onToggleTheme} size="icon" variant="ghost">
+            {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          </Button>
+        </div>
       </div>
     </aside>
   )

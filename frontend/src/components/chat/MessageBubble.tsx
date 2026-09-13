@@ -1,6 +1,7 @@
 import { useState } from "react"
-import { Bot, UserRound } from "lucide-react"
+import { Bot, FileText, UserRound } from "lucide-react"
 
+import { AgenticProcess } from "@/components/chat/AgenticProcess"
 import { Markdown } from "@/components/prompt-kit/markdown"
 import {
   Reasoning,
@@ -8,7 +9,7 @@ import {
   ReasoningTrigger,
 } from "@/components/prompt-kit/reasoning"
 import { ThinkingBar } from "@/components/prompt-kit/thinking-bar"
-import type { Message } from "@/types/chat"
+import type { Citation, Message } from "@/types/chat"
 import { cn } from "@/lib/utils"
 
 function formatThinkingDuration(durationMs?: number) {
@@ -17,14 +18,27 @@ function formatThinkingDuration(durationMs?: number) {
   return `${Math.max(1, Math.round(durationMs / 1000))} 秒`
 }
 
-export function MessageBubble({ message }: { message: Message }) {
+interface MessageBubbleProps {
+  message: Message
+  onCitationClick: (citation: Citation) => void
+}
+
+function formatCitationPages(citation: Citation) {
+  if (citation.pageStart === null) return "无页码"
+  if (citation.pageStart === citation.pageEnd) return `第 ${citation.pageStart} 页`
+  return `第 ${citation.pageStart}-${citation.pageEnd} 页`
+}
+
+export function MessageBubble({ message, onCitationClick }: MessageBubbleProps) {
   const isUser = message.role === "user"
   const isStreaming = message.status === "streaming"
   const isThinking = isStreaming && message.streamPhase === "thinking"
+  const isAgentic = message.ragMode === "agentic" || Boolean(message.agenticStages?.length)
   const hasReasoning =
-    isThinking ||
+    !isAgentic &&
+    (isThinking ||
     Boolean(message.reasoningContent) ||
-    (message.thinkingDurationMs !== undefined && message.thinkingDurationMs > 0)
+    (message.thinkingDurationMs !== undefined && message.thinkingDurationMs > 0))
   const thinkingDuration = formatThinkingDuration(message.thinkingDurationMs)
   const [isReasoningOpen, setIsReasoningOpen] = useState(false)
 
@@ -43,6 +57,9 @@ export function MessageBubble({ message }: { message: Message }) {
             : "max-w-[min(48rem,90%)] text-foreground",
         )}
       >
+        {!isUser && message.agenticStages && message.agenticStages.length > 0 && (
+          <AgenticProcess events={message.agenticStages} isStreaming={isStreaming} />
+        )}
         {!isUser && hasReasoning && (
           <Reasoning
             className="mb-3"
@@ -77,6 +94,25 @@ export function MessageBubble({ message }: { message: Message }) {
           </Markdown>
         ) : (
           message.content
+        )}
+        {!isUser && message.references && message.references.length > 0 && (
+          <div className="mt-4 flex flex-wrap items-center gap-1.5">
+            <span className="mr-1 text-xs text-muted-foreground">引用来源</span>
+            {message.references.map((citation) => (
+              <button
+                aria-label={`查看 ${citation.filename} ${formatCitationPages(citation)}`}
+                className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-muted/40 px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                key={citation.parentId}
+                onClick={() => onCitationClick(citation)}
+                title={`${citation.filename} · ${formatCitationPages(citation)}`}
+                type="button"
+              >
+                <FileText className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{citation.filename}</span>
+                <span className="shrink-0">· {formatCitationPages(citation)}</span>
+              </button>
+            ))}
+          </div>
         )}
       </div>
       {isUser && (

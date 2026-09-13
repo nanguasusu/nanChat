@@ -1,5 +1,5 @@
 import type { FormEvent, KeyboardEvent } from "react"
-import { ArrowUp, Square } from "lucide-react"
+import { ArrowUp, BookOpen, Square } from "lucide-react"
 
 import { ModelSettingsPopover } from "@/components/chat/ModelSettingsPopover"
 import { Button } from "@/components/ui/button"
@@ -13,10 +13,12 @@ interface ChatComposerProps {
   models: ModelOption[]
   selectedModelId: string
   thinkingLevel: ThinkingLevel
+  ragEnabled: boolean
   contextUsage: ContextUsage
   onChange: (value: string) => void
   onModelChange: (modelId: string) => void
   onThinkingLevelChange: (thinkingLevel: ThinkingLevel) => void
+  onRagEnabledChange: (enabled: boolean) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
   onStop: () => void
 }
@@ -28,10 +30,12 @@ export function ChatComposer({
   models,
   selectedModelId,
   thinkingLevel,
+  ragEnabled,
   contextUsage,
   onChange,
   onModelChange,
   onThinkingLevelChange,
+  onRagEnabledChange,
   onSubmit,
   onStop,
 }: ChatComposerProps) {
@@ -56,6 +60,25 @@ export function ChatComposer({
           <span className="mr-auto hidden px-2 text-xs text-muted-foreground sm:inline">
             Enter 发送 · Shift + Enter 换行
           </span>
+          <button
+            aria-checked={ragEnabled}
+            aria-label={ragEnabled ? "关闭知识库检索" : "开启知识库检索"}
+            className={[
+              "inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs transition-colors",
+              ragEnabled
+                ? "border-foreground bg-foreground text-background"
+                : "border-transparent text-muted-foreground hover:border-border hover:text-foreground",
+              "disabled:pointer-events-none disabled:opacity-50",
+            ].join(" ")}
+            disabled={disabled}
+            onClick={() => onRagEnabledChange(!ragEnabled)}
+            role="switch"
+            title={ragEnabled ? "已开启知识库检索" : "开启知识库检索"}
+            type="button"
+          >
+            <BookOpen className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">知识库</span>
+          </button>
           <ModelSettingsPopover
             contextUsage={contextUsage}
             disabled={disabled}

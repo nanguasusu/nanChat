@@ -46,12 +46,41 @@ def init_database() -> None:
                 content TEXT NOT NULL,
                 reasoning_content TEXT NOT NULL DEFAULT '',
                 thinking_duration_ms INTEGER NOT NULL DEFAULT 0,
+                references_json TEXT NOT NULL DEFAULT '[]',
                 created_at TEXT NOT NULL,
                 FOREIGN KEY (thread_id) REFERENCES threads (id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS documents (
+                id TEXT PRIMARY KEY,
+                filename TEXT NOT NULL,
+                source TEXT,
+                file_hash TEXT,
+                parser TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS parent_chunks (
+                id TEXT PRIMARY KEY,
+                document_id TEXT NOT NULL,
+                content TEXT NOT NULL,
+                page_start INTEGER,
+                page_end INTEGER,
+                chunk_index INTEGER NOT NULL,
+                token_count INTEGER,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (document_id) REFERENCES documents (id) ON DELETE CASCADE
+            );
+
             CREATE INDEX IF NOT EXISTS idx_messages_thread_created_at
                 ON messages (thread_id, created_at);
+
+            CREATE INDEX IF NOT EXISTS idx_parent_chunks_document_id
+                ON parent_chunks (document_id);
+
+            CREATE INDEX IF NOT EXISTS idx_parent_chunks_document_chunk_index
+                ON parent_chunks (document_id, chunk_index);
             """
         )
 
@@ -66,4 +95,8 @@ def init_database() -> None:
         if "thinking_duration_ms" not in message_columns:
             connection.execute(
                 "ALTER TABLE messages ADD COLUMN thinking_duration_ms INTEGER NOT NULL DEFAULT 0"
+            )
+        if "references_json" not in message_columns:
+            connection.execute(
+                "ALTER TABLE messages ADD COLUMN references_json TEXT NOT NULL DEFAULT '[]'"
             )

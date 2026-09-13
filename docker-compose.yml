@@ -9,11 +9,22 @@ services:
         required: false
     environment:
       CORS_ORIGINS: http://localhost:5173
-      LONGCAT_BASE_URL: https://api.longcat.chat/openai
-      LONGCAT_MODEL: LongCat-2.0
+      LONGCAT_BASE_URL: https://api.z.ai/api/paas/v4/
+      LONGCAT_MODEL: glm-5.3-flash
       SQLITE_DB_PATH: /app/data/ai_chat.db
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION: enterprise_knowledge
     volumes:
       - backend_data:/app/data
+      - ./backend/knowledge:/app/knowledge
+    depends_on:
+      - qdrant
+  qdrant:
+    image: qdrant/qdrant:v1.19.0
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_storage:/qdrant/storage
   frontend:
     build:
       context: ./frontend
@@ -26,3 +37,4 @@ services:
 
 volumes:
   backend_data:
+  qdrant_storage:

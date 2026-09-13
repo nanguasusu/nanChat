@@ -1,10 +1,17 @@
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 
-from app.core.config import get_configured_model, get_context_window_tokens
+from app.core.config import (
+    RAGConfigurationError,
+    get_configured_model,
+    get_context_window_tokens,
+)
 from app.schemas.chat import ChatRequest
 from app.schemas.health import HealthResponse
 from app.schemas.model import ModelResponse
+from app.rag.retrieval_service import retrieve
+from app.rag.schemas import RagSearchRequest, RagSearchResponse
+from app.rag.vectorstore import KnowledgeBaseNotFoundError, KnowledgeBaseUnavailableError
 from app.services.chat_service import stream_chat_response
 from app.schemas.thread import MessageResponse, ThreadResponse
 from app.services.thread_service import (
@@ -35,6 +42,20 @@ async def chat(request: ChatRequest, http_request: Request) -> StreamingResponse
     )
 
 
+@router.post("/api/rag/search", response_model=RagSearchResponse)
+async def search_knowledge_base(request: RagSearchRequest) -> RagSearchResponse:
+    try:
+        results = await retrieve(request.query, request.k)
+    except RAGConfigurationError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except KnowledgeBaseNotFoundError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except KnowledgeBaseUnavailableError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+    return RagSearchResponse(query=request.query, results=results)
+
+
 @router.get("/api/threads", response_model=list[ThreadResponse])
 async def get_threads() -> list[ThreadResponse]:
     return list_threads()
@@ -43,7 +64,7 @@ async def get_threads() -> list[ThreadResponse]:
 @router.get("/api/models", response_model=list[ModelResponse])
 async def get_models() -> list[ModelResponse]:
     model = get_configured_model()
-    label = "LongCat 2.0" if model == "LongCat-2.0" else model
+    label = "GLM-5.3 Flash" if model == "glm-5.3-flash" else model
     return [
         ModelResponse(
             id=model,

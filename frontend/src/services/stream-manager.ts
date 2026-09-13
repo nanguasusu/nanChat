@@ -1,4 +1,9 @@
-import type { Thread, ThinkingLevel } from "@/types/chat"
+import type {
+  AgenticStageEvent,
+  ApiCitation,
+  Thread,
+  ThinkingLevel,
+} from "@/types/chat"
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000"
 
@@ -24,12 +29,25 @@ interface StreamThinkingCompleteEvent {
   thinking_duration_ms: number
 }
 
+interface StreamAgenticStageEvent {
+  type: "agentic_stage"
+  stage: AgenticStageEvent["stage"]
+  status: AgenticStageEvent["status"]
+  task_id?: string
+  label?: string
+  task_count?: number
+  parent_count?: number
+  attempts?: number
+  result_status?: AgenticStageEvent["resultStatus"]
+}
+
 interface StreamDoneEvent {
   type: "done"
   thread_id: string
   message_id: string
   thread: Thread
   thinking_duration_ms: number
+  references: ApiCitation[]
 }
 
 interface StreamErrorEvent {
@@ -43,6 +61,7 @@ type StreamEvent =
   | StreamDeltaEvent
   | StreamReasoningDeltaEvent
   | StreamThinkingCompleteEvent
+  | StreamAgenticStageEvent
   | StreamDoneEvent
   | StreamErrorEvent
 
@@ -51,6 +70,7 @@ interface StreamCallbacks {
   onDelta: (event: StreamDeltaEvent) => void
   onReasoning: (event: StreamReasoningDeltaEvent) => void
   onThinkingComplete: (event: StreamThinkingCompleteEvent) => void
+  onAgenticStage: (event: AgenticStageEvent) => void
   onDone: (event: StreamDoneEvent) => void
   onError: (error: Error) => void
   onAborted: () => void
@@ -62,6 +82,9 @@ interface StartStreamOptions extends StreamCallbacks {
   message: string
   model: string
   thinkingLevel: ThinkingLevel
+  ragEnabled: boolean
+  ragMode: "standard" | "agentic"
+  queryRewriteEnabled: boolean
 }
 
 const activeStreams = new Map<string, AbortController>()
@@ -124,6 +147,21 @@ async function consumeStream(
       return
     }
 
+    if (event.type === "agentic_stage") {
+      callbacks.onAgenticStage({
+        type: event.type,
+        stage: event.stage,
+        status: event.status,
+        taskId: event.task_id,
+        label: event.label,
+        taskCount: event.task_count,
+        parentCount: event.parent_count,
+        attempts: event.attempts,
+        resultStatus: event.result_status,
+      })
+      return
+    }
+
     terminalEventReceived = true
     if (event.type === "done") {
       callbacks.onDone(event)
@@ -177,10 +215,14 @@ export function startChatStream({
   message,
   model,
   thinkingLevel,
+  ragEnabled,
+  ragMode,
+  queryRewriteEnabled,
   onStart,
   onDelta,
   onReasoning,
   onThinkingComplete,
+  onAgenticStage,
   onDone,
   onError,
   onAborted,
@@ -203,6 +245,9 @@ export function startChatStream({
           thread_id: threadId,
           model,
           thinking_level: thinkingLevel,
+          rag_enabled: ragEnabled,
+          rag_mode: ragMode,
+          query_rewrite_enabled: queryRewriteEnabled,
         }),
         signal: controller.signal,
       })
@@ -219,6 +264,7 @@ export function startChatStream({
           onDelta,
           onReasoning,
           onThinkingComplete,
+          onAgenticStage,
           onDone,
           onError,
           onAborted,
