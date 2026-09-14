@@ -41,7 +41,7 @@ function PromptInputTextarea({
   return (
     <Textarea
       aria-label="消息输入框"
-      className="min-h-12 resize-none border-0 bg-transparent px-3 py-2.5 shadow-none focus-visible:ring-0"
+      className="min-h-[3.5rem] resize-none border-0 bg-transparent px-3 py-2.5 text-base shadow-none focus-visible:ring-0 md:min-h-12 md:text-sm"
       disabled={disabled}
       onChange={(event) => onChange(event.target.value)}
       onKeyDown={onKeyDown}
@@ -52,7 +52,9 @@ function PromptInputTextarea({
 }
 
 function PromptInputActions({ children }: { children: ReactNode }) {
-  return <div className="flex items-center justify-end gap-1 px-1 pb-1">{children}</div>
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-1 px-1 pb-1">{children}</div>
+  )
 }
 
 export { PromptInput, PromptInputActions, PromptInputTextarea }

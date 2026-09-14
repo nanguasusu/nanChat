@@ -10,6 +10,7 @@ import { Sidebar } from "@/components/layout/Sidebar"
 import { SettingsDialog } from "@/components/layout/SettingsDialog"
 import { Button } from "@/components/ui/button"
 import { estimateContextUsage } from "@/lib/context"
+import { DESKTOP_MEDIA_QUERY, isDesktopViewport } from "@/lib/media"
 import {
   deleteThread,
   getThreadMessages,
@@ -86,7 +87,7 @@ export function ChatPage() {
   const removeThread = useChatStore((state) => state.removeThread)
   const addNotification = useChatStore((state) => state.addNotification)
   const [isDark, setIsDark] = useState(false)
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true)
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => isDesktopViewport())
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [queryRewriteEnabled, setQueryRewriteEnabled] = useState(
     () => window.localStorage.getItem(QUERY_REWRITE_STORAGE_KEY) === "true",
@@ -98,6 +99,8 @@ export function ChatPage() {
   const [selectedCitation, setSelectedCitation] = useState<Citation | null>(null)
 
   const isStreaming = streamStatus === "streaming"
+  const activeThreadTitle =
+    threads.find((thread) => thread.id === activeThreadId)?.title ?? "New chat"
   const selectedModelId =
     modelByConversation[activeConversationKey] ?? models[0]?.id ?? DEFAULT_MODEL.id
   const selectedModel =
@@ -167,13 +170,26 @@ export function ChatPage() {
     setSelectedCitation(null)
   }, [activeConversationKey])
 
+  useEffect(() => {
+    const media = window.matchMedia(DESKTOP_MEDIA_QUERY)
+    const handleChange = () => setIsSidebarOpen(media.matches)
+    media.addEventListener("change", handleChange)
+    return () => media.removeEventListener("change", handleChange)
+  }, [])
+
+  const closeMobileSidebar = () => {
+    if (!isDesktopViewport()) setIsSidebarOpen(false)
+  }
+
   const handleNewChat = () => {
     setLoadError(null)
     setSelectedCitation(null)
     setActiveConversation(NEW_CHAT_KEY, null)
+    closeMobileSidebar()
   }
 
   const handleSelectThread = async (threadId: string) => {
+    closeMobileSidebar()
     if (threadId === activeThreadId) return
 
     setLoadError(null)
@@ -338,7 +354,7 @@ export function ChatPage() {
   }
 
   return (
-    <div className="flex h-screen min-h-0 flex-col overflow-hidden bg-background text-foreground md:flex-row">
+    <div className="flex h-dvh min-h-0 w-full max-w-[100vw] flex-col overflow-hidden bg-background pt-[env(safe-area-inset-top)] text-foreground md:flex-row">
       {isSidebarOpen && (
         <button
           aria-label="关闭侧边栏"
@@ -351,32 +367,37 @@ export function ChatPage() {
         activeThreadId={activeThreadId}
         isDark={isDark}
         isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
         onDeleteThread={handleDeleteThread}
         onNewChat={handleNewChat}
-        onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenSettings={() => {
+          setIsSettingsOpen(true)
+          closeMobileSidebar()
+        }}
         onSelectThread={handleSelectThread}
         onToggleTheme={() => setIsDark((value) => !value)}
         streamStatusByConversation={streamStatusByConversation}
         threads={threads}
       />
-      <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <header className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4 sm:px-6">
-          <div className="flex items-center gap-1">
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border px-3 sm:px-6">
+          <div className="flex min-w-0 items-center gap-1">
             <Button
               aria-controls="chat-sidebar"
               aria-expanded={isSidebarOpen}
               aria-label={isSidebarOpen ? "关闭侧边栏" : "打开侧边栏"}
-              className="text-muted-foreground"
+              className="shrink-0 text-muted-foreground"
               onClick={() => setIsSidebarOpen((value) => !value)}
               size="icon"
               variant="ghost"
             >
               <PanelLeft className="h-4 w-4" />
             </Button>
+            <h1 className="truncate text-sm font-medium">{activeThreadTitle}</h1>
           </div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <div className="hidden items-center gap-2 text-xs text-muted-foreground sm:flex">
             <Sparkles className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Minimal workspace</span>
+            <span>Minimal workspace</span>
           </div>
         </header>
 

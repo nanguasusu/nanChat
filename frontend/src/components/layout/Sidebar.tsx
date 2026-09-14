@@ -5,6 +5,7 @@ import {
   Settings,
   Sun,
   Trash2,
+  X,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -20,6 +21,7 @@ interface SidebarProps {
   onDeleteThread: (thread: Thread) => void
   onNewChat: () => void
   onSelectThread: (threadId: string) => void
+  onClose: () => void
   onOpenSettings: () => void
   onToggleTheme: () => void
 }
@@ -32,6 +34,7 @@ export function Sidebar({
   threads,
   onDeleteThread,
   onNewChat,
+  onClose,
   onOpenSettings,
   onSelectThread,
   onToggleTheme,
@@ -39,15 +42,24 @@ export function Sidebar({
   return (
     <aside
       aria-hidden={!isOpen}
-      className={`fixed inset-y-0 left-0 z-40 flex w-72 shrink-0 flex-col overflow-hidden bg-sidebar shadow-xl transition-[width,transform,opacity] duration-200 md:relative md:inset-auto md:z-auto md:h-full md:min-h-0 md:shadow-none ${
+      className={`fixed inset-y-0 left-0 z-40 flex w-[min(18rem,86vw)] shrink-0 flex-col overflow-hidden bg-sidebar pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)] shadow-xl transition-[width,transform,opacity] duration-200 md:relative md:inset-auto md:z-auto md:h-full md:min-h-0 md:pb-0 md:pt-0 md:shadow-none ${
         isOpen
           ? "translate-x-0 border-r border-border md:w-64"
           : "-translate-x-full pointer-events-none border-r-0 opacity-0 md:w-0"
       }`}
       id="chat-sidebar"
     >
-      <div className="flex h-14 shrink-0 items-center px-5">
+      <div className="flex h-14 shrink-0 items-center justify-between px-5">
         <div className="px-2 text-sm font-semibold tracking-tight">AI Chat</div>
+        <Button
+          aria-label="关闭侧边栏"
+          className="text-muted-foreground md:hidden"
+          onClick={onClose}
+          size="icon"
+          variant="ghost"
+        >
+          <X className="h-4 w-4" />
+        </Button>
       </div>
 
       <div className="px-3 pb-3">
@@ -73,7 +85,7 @@ export function Sidebar({
               key={thread.id}
             >
               <button
-                className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-2 text-left hover:text-foreground"
+                className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-2.5 text-left hover:text-foreground md:py-2"
                 onClick={() => onSelectThread(thread.id)}
                 type="button"
               >
@@ -84,7 +96,7 @@ export function Sidebar({
               </button>
               <Button
                 aria-label={`删除会话：${thread.title}`}
-                className="mr-1 h-7 w-7 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:text-destructive"
+                className="mr-1 h-9 w-9 shrink-0 text-muted-foreground opacity-100 transition-opacity hover:text-destructive focus-visible:opacity-100 md:h-7 md:w-7 md:opacity-0 md:group-hover:opacity-100"
                 disabled={streamStatusByConversation[thread.id] === "streaming"}
                 onClick={() => onDeleteThread(thread)}
                 size="icon"

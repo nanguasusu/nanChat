@@ -36,7 +36,7 @@ export function NotificationToasts() {
   const notifications = useChatStore((state) => state.notifications)
 
   return (
-    <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex flex-col gap-2">
+    <div className="pointer-events-none fixed inset-x-3 top-[4.75rem] z-50 flex flex-col items-stretch gap-2 md:inset-x-auto md:bottom-4 md:right-4 md:top-auto md:items-end">
       {notifications.map((notification) => (
         <div className="pointer-events-auto" key={notification.id}>
           <NotificationItem notification={notification} />

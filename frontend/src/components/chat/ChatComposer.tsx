@@ -47,7 +47,7 @@ export function ChatComposer({
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl shrink-0 px-4 pb-4 sm:px-6 sm:pb-6">
+    <div className="mx-auto w-full max-w-3xl shrink-0 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6 sm:pb-6">
       <PromptInput onSubmit={onSubmit}>
         <PromptInputTextarea
           disabled={disabled}
@@ -64,7 +64,7 @@ export function ChatComposer({
             aria-checked={ragEnabled}
             aria-label={ragEnabled ? "关闭知识库检索" : "开启知识库检索"}
             className={[
-              "inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs transition-colors",
+              "inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-xs transition-colors sm:h-8",
               ragEnabled
                 ? "border-foreground bg-foreground text-background"
                 : "border-transparent text-muted-foreground hover:border-border hover:text-foreground",

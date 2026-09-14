@@ -65,20 +65,20 @@ export function MessageList({
   }, [conversationKey, messages, isStreaming])
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto" onScroll={handleScroll} ref={scrollRef}>
+    <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto" onScroll={handleScroll} ref={scrollRef}>
       {messages.length === 0 ? (
-        <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col items-center justify-center px-6 py-12">
+        <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col items-center justify-center px-4 py-10 sm:px-6 sm:py-12">
           <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-foreground text-background">
             <span className="text-lg font-semibold">✦</span>
           </div>
-          <h1 className="text-center text-2xl font-semibold tracking-tight sm:text-3xl">How can I help you today?</h1>
+          <h1 className="text-center text-xl font-semibold tracking-tight sm:text-2xl md:text-3xl">How can I help you today?</h1>
           <p className="mt-3 max-w-md text-center text-sm leading-6 text-muted-foreground">
             输入消息后，前端会通过 SSE 接收模型服务的实时回复。
           </p>
           <div className="mt-8 grid w-full max-w-2xl gap-2 sm:grid-cols-3">
             {suggestions.map((suggestion) => (
               <button
-                className="rounded-xl border border-border bg-background p-3 text-left text-xs leading-5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                className="min-h-11 rounded-xl border border-border bg-background p-3.5 text-left text-xs leading-5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground sm:p-3"
                 key={suggestion}
                 onClick={() => onSuggestion(suggestion)}
                 type="button"
@@ -89,7 +89,7 @@ export function MessageList({
           </div>
         </div>
       ) : (
-        <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col gap-6 px-6 py-8">
+        <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col gap-5 px-4 py-6 sm:gap-6 sm:px-6 sm:py-8">
           {messages.map((message) => (
             <MessageBubble
               key={message.id}

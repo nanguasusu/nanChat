@@ -35,7 +35,7 @@ function ThinkingIntensitySlider({
   const progress = levels.length > 1 ? (levelIndex / (levels.length - 1)) * 100 : 100
 
   return (
-    <div className="w-64 px-4 py-3">
+    <div className="w-full px-4 py-3 md:w-64">
       <div className="flex items-center justify-between text-xs text-muted-foreground">
         <span>思考强度</span>
         <span className="font-medium text-foreground">{thinkingLevelLabels[value]}</span>
@@ -130,23 +130,34 @@ export function ModelSettingsPopover({
           aria-expanded={isOpen}
           aria-haspopup="dialog"
           aria-label="模型和思考设置"
-          className="flex h-8 items-center gap-1.5 rounded-md px-2 text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-9 max-w-[11rem] items-center gap-1.5 rounded-md px-2 text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 sm:h-8 sm:max-w-none"
           disabled={disabled}
           onClick={() => setIsOpen((value) => !value)}
           type="button"
         >
-          <span>{selectedModel?.label ?? "选择模型"}</span>
-          <span className="text-muted-foreground">{thinkingLevelLabels[selectedThinkingLevel]}</span>
-          <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="min-w-0 truncate">{selectedModel?.label ?? "选择模型"}</span>
+          <span className="hidden shrink-0 text-muted-foreground sm:inline">
+            {thinkingLevelLabels[selectedThinkingLevel]}
+          </span>
+          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         </button>
+
+        {isOpen && (
+          <button
+            aria-label="关闭模型和思考设置"
+            className="fixed inset-0 z-30 bg-black/20 md:hidden"
+            onClick={() => setIsOpen(false)}
+            type="button"
+          />
+        )}
 
         {isOpen && (
           <div
             aria-label="模型和思考设置面板"
-            className="absolute bottom-[calc(100%+0.75rem)] right-0 z-30 flex overflow-hidden rounded-2xl border border-border bg-background/95 shadow-2xl backdrop-blur"
+            className="fixed inset-x-3 bottom-[max(5.5rem,calc(env(safe-area-inset-bottom)+4.5rem))] z-40 flex max-h-[min(28rem,70dvh)] flex-col overflow-hidden rounded-2xl border border-border bg-background/95 shadow-2xl backdrop-blur md:absolute md:inset-auto md:bottom-[calc(100%+0.75rem)] md:right-0 md:z-30 md:max-h-none md:flex-row"
             role="dialog"
           >
-            <div className="w-52 shrink-0 border-r border-border p-2">
+            <div className="w-full shrink-0 border-b border-border p-2 md:w-52 md:border-b-0 md:border-r">
               <button
                 className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors ${
                   activePanel === "model" ? "bg-muted" : "hover:bg-muted/70"
@@ -179,7 +190,7 @@ export function ModelSettingsPopover({
                 <span>重置为默认设置</span>
               </button>
             </div>
-            <div className="min-h-48 w-64">
+            <div className="min-h-48 w-full overflow-y-auto md:w-64">
               {activePanel === "model" ? (
                 <div className="p-2">
                   {models.map((model) => (

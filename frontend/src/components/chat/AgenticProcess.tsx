@@ -126,7 +126,7 @@ export function AgenticProcess({ events, isStreaming }: AgenticProcessProps) {
     <div className="mb-3 text-sm text-muted-foreground">
       <button
         aria-expanded={isOpen}
-        className="flex cursor-pointer items-center gap-2 text-left transition-colors hover:text-foreground"
+        className="flex w-full min-w-0 cursor-pointer items-start gap-2 text-left transition-colors hover:text-foreground"
         onClick={() => setIsOpen((value) => !value)}
         type="button"
       >
@@ -137,8 +137,8 @@ export function AgenticProcess({ events, isStreaming }: AgenticProcessProps) {
         ) : (
           <Circle className="h-2.5 w-2.5 fill-current" />
         )}
-        <span>{summary}</span>
-        <ChevronDown className={cn("h-4 w-4 transition-transform", isOpen && "rotate-180")} />
+        <span className="min-w-0 flex-1">{summary}</span>
+        <ChevronDown className={cn("mt-0.5 h-4 w-4 shrink-0 transition-transform", isOpen && "rotate-180")} />
       </button>
 
       <div
