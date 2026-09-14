@@ -45,7 +45,7 @@ export function SettingsDialog({
       <div
         aria-labelledby="settings-dialog-title"
         aria-modal="true"
-        className="w-full max-w-lg overflow-hidden rounded-2xl border border-border bg-background shadow-2xl"
+        className="flex max-h-[min(36rem,calc(100dvh-2rem))] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl"
         onClick={(event) => event.stopPropagation()}
         role="dialog"
       >
@@ -61,7 +61,7 @@ export function SettingsDialog({
           </Button>
         </div>
 
-        <div className="space-y-6 p-5">
+        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-5">
           <section>
             <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
               知识库检索

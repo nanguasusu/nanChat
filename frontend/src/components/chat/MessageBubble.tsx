@@ -43,18 +43,18 @@ export function MessageBubble({ message, onCitationClick }: MessageBubbleProps) 
   const [isReasoningOpen, setIsReasoningOpen] = useState(false)
 
   return (
-    <div className={cn("flex gap-3", isUser ? "justify-end" : "justify-start")}>
+    <div className={cn("flex gap-2 sm:gap-3", isUser ? "justify-end" : "justify-start")}>
       {!isUser && (
-        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-background text-foreground">
+        <div className="mt-0.5 hidden h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-background text-foreground sm:flex">
           <Bot className="h-4 w-4" />
         </div>
       )}
       <div
         className={cn(
-          "min-w-0 text-sm leading-6",
+          "min-w-0 overflow-x-auto text-sm leading-6",
           isUser
-            ? "max-w-[min(42rem,85%)] whitespace-pre-wrap rounded-2xl rounded-br-md bg-foreground px-4 py-3 text-background"
-            : "max-w-[min(48rem,90%)] text-foreground",
+            ? "max-w-[min(42rem,92%)] whitespace-pre-wrap break-words rounded-2xl rounded-br-md bg-foreground px-3.5 py-2.5 text-background sm:max-w-[min(42rem,85%)] sm:px-4 sm:py-3"
+            : "max-w-full text-foreground sm:max-w-[min(48rem,90%)]",
         )}
       >
         {!isUser && message.agenticStages && message.agenticStages.length > 0 && (
@@ -87,7 +87,7 @@ export function MessageBubble({ message, onCitationClick }: MessageBubbleProps) 
         )}
         {!isUser && message.content ? (
           <Markdown
-            className="prose prose-sm max-w-none dark:prose-invert"
+            className="prose prose-sm max-w-none break-words dark:prose-invert [&_img]:max-w-full [&_pre]:overflow-x-auto [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto"
             id={message.id}
           >
             {message.content}
@@ -116,7 +116,7 @@ export function MessageBubble({ message, onCitationClick }: MessageBubbleProps) 
         )}
       </div>
       {isUser && (
-        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+        <div className="mt-0.5 hidden h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground sm:flex">
           <UserRound className="h-4 w-4" />
         </div>
       )}

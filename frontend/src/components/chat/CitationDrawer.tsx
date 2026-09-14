@@ -45,9 +45,12 @@ export function CitationDrawer({ citation, onClose }: CitationDrawerProps) {
       <aside
         aria-label="引用内容"
         aria-modal="true"
-        className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[32rem] flex-col border-l border-border bg-background shadow-2xl"
+        className="fixed inset-x-0 bottom-0 z-50 flex max-h-[85dvh] w-full flex-col rounded-t-2xl border-t border-border bg-background pb-[env(safe-area-inset-bottom)] shadow-2xl md:inset-y-0 md:right-0 md:max-h-none md:max-w-[32rem] md:rounded-none md:border-l md:border-t-0 md:pb-0"
         role="dialog"
       >
+        <div className="flex shrink-0 justify-center pt-2 md:hidden">
+          <span className="h-1 w-10 rounded-full bg-border" />
+        </div>
         <header className="flex shrink-0 items-start justify-between gap-4 border-b border-border px-5 py-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-sm font-medium">
