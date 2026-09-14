@@ -1,3 +1,5 @@
+"""集中读取并校验模型、知识库和 Agentic RAG 的运行配置。"""
+
 import os
 from dataclasses import dataclass
 
@@ -7,22 +9,26 @@ load_dotenv()
 
 
 class LongCatConfigurationError(RuntimeError):
-    """Raised when the real model integration is not configured."""
+    """模型服务配置缺失或无效时抛出。"""
 
 
 @dataclass(frozen=True)
 class LongCatSettings:
+    """调用对话模型所需的连接参数。"""
+
     api_key: str
     base_url: str
     model: str
 
 
 class RAGConfigurationError(RuntimeError):
-    """Raised when the knowledge-base integration is not configured."""
+    """知识库相关配置缺失或无效时抛出。"""
 
 
 @dataclass(frozen=True)
 class RAGSettings:
+    """知识库切分、检索、重排和向量服务的配置。"""
+
     qdrant_url: str
     qdrant_collection: str
     parent_chunk_size: int
@@ -42,6 +48,8 @@ class RAGSettings:
 
 @dataclass(frozen=True)
 class AgenticRAGSettings:
+    """Agentic RAG 的任务数量、重试次数和并发限制。"""
+
     max_plan_tasks: int
     max_scope_tasks: int
     task_max_retrievals: int
@@ -68,10 +76,12 @@ DEFAULT_AGENTIC_MAX_CONCURRENCY = 3
 
 
 def get_configured_model() -> str:
+    """返回环境变量指定的模型名；未配置时使用默认模型。"""
     return os.getenv("LONGCAT_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
 
 
 def get_context_window_tokens() -> int:
+    """读取前端展示用的模型上下文窗口大小。"""
     return int(
         os.getenv(
             "LONGCAT_CONTEXT_WINDOW_TOKENS",
@@ -81,11 +91,13 @@ def get_context_window_tokens() -> int:
 
 
 def get_cors_origins() -> list[str]:
+    """把逗号分隔的跨域来源整理为非空列表。"""
     configured_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173")
     return [origin.strip() for origin in configured_origins.split(",") if origin.strip()]
 
 
 def get_longcat_settings() -> LongCatSettings:
+    """读取并校验对话模型的 API 配置。"""
     api_key = os.getenv("LONGCAT_API_KEY", "").strip()
     if not api_key or api_key in {
         "replace-with-your-local-api-key",
@@ -103,6 +115,7 @@ def get_longcat_settings() -> LongCatSettings:
 
 
 def get_agentic_rag_settings() -> AgenticRAGSettings:
+    """读取 Agentic RAG 限制，并确保其处于当前版本支持的范围内。"""
     try:
         settings = AgenticRAGSettings(
             max_plan_tasks=int(
@@ -140,6 +153,7 @@ def get_agentic_rag_settings() -> AgenticRAGSettings:
 
 
 def get_rag_settings() -> RAGSettings:
+    """读取并校验 Parent-Child RAG 的全部运行参数。"""
     embedding_api_key = os.getenv("EMBEDDING_API_KEY", "").strip()
     if not embedding_api_key or embedding_api_key == "replace-with-your-local-api-key":
         raise RAGConfigurationError(

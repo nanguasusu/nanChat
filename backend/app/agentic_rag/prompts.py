@@ -1,3 +1,5 @@
+"""控制 Agentic RAG 提示词中的证据数量和文本长度。"""
+
 from app.agentic_rag.schemas import TaskResult
 from app.rag.schemas import RetrievedParent
 
@@ -6,6 +8,7 @@ MAX_PROMPT_CHARS = 24_000
 
 
 def select_context(parents: list[RetrievedParent]) -> list[RetrievedParent]:
+    """按分数去重并截断证据，控制单次提示词的规模。"""
     best_by_id: dict[str, RetrievedParent] = {}
     for parent in parents:
         current = best_by_id.get(parent.parent_id)
@@ -28,6 +31,7 @@ def select_context(parents: list[RetrievedParent]) -> list[RetrievedParent]:
 
 
 def format_evidence(parents: list[RetrievedParent]) -> str:
+    """把 Parent 证据格式化为带文件名和页码的提示词文本。"""
     if not parents:
         return "（没有检索到相关资料）"
     blocks = []
@@ -44,6 +48,7 @@ def format_evidence(parents: list[RetrievedParent]) -> str:
 
 
 def format_task_results(results: list[TaskResult]) -> str:
+    """把任务状态和答案格式化为最终合成可读的文本。"""
     if not results:
         return "（没有任务结果）"
     return "\n\n".join(

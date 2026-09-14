@@ -1,3 +1,5 @@
+"""把加载后的页面文本切分为可检索的 Parent 和 Child 两级片段。"""
+
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -12,6 +14,8 @@ from app.rag.repository import ParentChunkRecord
 
 @dataclass(frozen=True)
 class ChildChunk:
+    """写入 Qdrant 的子片段及其父片段、文档元数据。"""
+
     child_id: str
     parent_id: str
     document_id: str
@@ -26,11 +30,14 @@ class ChildChunk:
 
 @dataclass(frozen=True)
 class ChunkedDocument:
+    """一次文档切分产生的 Parent 和 Child 集合。"""
+
     parents: list[ParentChunkRecord]
     children: list[ChildChunk]
 
 
 def _stable_id(seed: str) -> str:
+    """由稳定种子生成可重复的 UUID，保证重建时片段 ID 不漂移。"""
     digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()
     return str(UUID(digest[:32]))
 
@@ -40,6 +47,7 @@ def _page_range(
     start: int,
     end: int,
 ) -> tuple[int | None, int | None]:
+    """根据字符区间反查片段覆盖的起止页码。"""
     if not page_spans or end <= start:
         return None, None
 
@@ -61,6 +69,7 @@ def build_parent_child_chunks(
     source_documents: list[Document],
     document_id: str,
 ) -> ChunkedDocument:
+    """先生成较完整的 Parent，再在每个 Parent 内切出带重叠的 Child。"""
     settings = get_rag_settings()
     if not source_documents:
         return ChunkedDocument(parents=[], children=[])
@@ -96,6 +105,7 @@ def build_parent_child_chunks(
     child_index = 0
     created_at = datetime.now(timezone.utc).isoformat()
     for parent_index, parent_document in enumerate(parent_documents):
+        # Parent 保留完整上下文，Child 只负责提高向量检索命中率。
         parent_id = _stable_id(f"{document_id}:parent:{parent_index}")
         parent_start = parent_document.metadata["start_index"]
         parent_end = parent_start + len(parent_document.page_content)

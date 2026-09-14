@@ -1,3 +1,5 @@
+"""编排会话持久化、模型流式输出和两种可选 RAG 模式。"""
+
 import asyncio
 import json
 from collections.abc import AsyncIterator
@@ -5,12 +7,12 @@ from time import monotonic
 from uuid import uuid4
 
 from fastapi import Request
-from openai import APIStatusError, AsyncOpenAI, DefaultAsyncHttpxClient, OpenAIError
+from openai import APIStatusError, AsyncOpenAI, OpenAIError
 
 from app.agentic_rag import run_agentic_rag
+from app.core.clients import get_longcat_client
 from app.core.config import (
     LongCatConfigurationError,
-    LongCatSettings,
     RAGConfigurationError,
     get_configured_model,
     get_longcat_settings,
@@ -28,40 +30,26 @@ from app.services.thread_service import (
     list_messages,
     update_thread_title,
 )
-from app.services.model_params import get_thinking_parameters
+from app.services.model_params import get_completion_max_tokens, get_thinking_parameters
 from app.services.query_rewrite import rewrite_query
 
 
 class UnsupportedModelError(ValueError):
-    """Raised when the client requests a model not configured by the server."""
-
-
-THINKING_TOKEN_BUDGETS = {
-    "off": 1024,
-    "low": 1024,
-    "medium": 2048,
-    "high": 4096,
-    "xhigh": 8192,
-}
+    """客户端请求的模型不是后端当前启用的模型时抛出。"""
 
 
 def _sse(data: dict[str, object]) -> str:
+    """把一个事件编码为浏览器可消费的 SSE 数据块。"""
     return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
 def _title_from_message(message: str) -> str:
+    """从首条用户消息生成长度受限的默认会话标题。"""
     return " ".join(message.split())[:80] or "New chat"
 
 
-def get_longcat_client(settings: LongCatSettings) -> AsyncOpenAI:
-    return AsyncOpenAI(
-        api_key=settings.api_key,
-        base_url=settings.base_url,
-        http_client=DefaultAsyncHttpxClient(trust_env=False),
-    )
-
-
 def _build_rag_context(parents: list[RetrievedParent]) -> str:
+    """将 Parent 检索结果包装为带防提示注入约束的系统上下文。"""
     if not parents:
         return (
             "你是企业知识库助手。当前知识库没有检索到与用户问题直接相关的资料。"
@@ -92,6 +80,7 @@ async def stream_chat_response(
     request: ChatRequest,
     http_request: Request,
 ) -> AsyncIterator[str]:
+    """处理一次聊天请求，并按 start、增量事件、done/error 顺序输出 SSE。"""
     try:
         configured_model = get_configured_model()
         model = request.model or configured_model
@@ -100,15 +89,15 @@ async def stream_chat_response(
 
         title = _title_from_message(request.message)
         if request.thread_id:
-            thread = get_thread(request.thread_id)
+            thread = await get_thread(request.thread_id)
             if thread.title == "New chat":
-                thread = update_thread_title(thread.id, title)
-            add_message(thread.id, "user", request.message)
+                thread = await update_thread_title(thread.id, title)
+            await add_message(thread.id, "user", request.message)
         else:
-            thread = create_thread_with_message(title, request.message)
+            thread = await create_thread_with_message(title, request.message)
 
-        thread = get_thread(thread.id)
-        history = list_messages(thread.id)
+        thread = await get_thread(thread.id)
+        history = await list_messages(thread.id)
         assistant_message_id = str(uuid4())
         yield _sse(
             {
@@ -133,6 +122,7 @@ async def stream_chat_response(
                 {"role": message.role, "content": message.content}
                 for message in history
             ]
+            # Standard RAG 只改写检索 query，不改变发给最终回答模型的用户问题。
             if request.rag_enabled and request.rag_mode == "standard":
                 retrieval_query = request.message
                 if request.query_rewrite_enabled:
@@ -148,6 +138,7 @@ async def stream_chat_response(
                     {"role": "system", "content": _build_rag_context(rag_parents)},
                 )
 
+            # Agentic RAG 通过队列转发阶段和 token，避免阻塞主 SSE 生成器。
             if request.rag_enabled and request.rag_mode == "agentic":
                 stage_queue: asyncio.Queue[dict[str, object] | None] = asyncio.Queue()
 
@@ -163,6 +154,14 @@ async def stream_chat_response(
                         }
                     )
 
+                async def emit_answer_delta(content: str) -> None:
+                    await stage_queue.put({"type": "delta", "content": content})
+
+                async def emit_reasoning_delta(content: str) -> None:
+                    await stage_queue.put(
+                        {"type": "reasoning_delta", "content": content}
+                    )
+
                 async def run_agentic():
                     try:
                         return await run_agentic_rag(
@@ -171,6 +170,8 @@ async def stream_chat_response(
                             client,
                             model,
                             emit_stage,
+                            on_answer_delta=emit_answer_delta,
+                            on_reasoning_delta=emit_reasoning_delta,
                         )
                     finally:
                         await stage_queue.put(None)
@@ -184,24 +185,43 @@ async def stream_chat_response(
                         agentic_task.cancel()
                         await asyncio.gather(agentic_task, return_exceptions=True)
                         return
+                    event_type = event.get("type")
+                    if event_type == "reasoning_delta":
+                        reasoning_parts.append(str(event["content"]))
+                    elif event_type == "delta":
+                        if thinking_duration_ms is None:
+                            thinking_duration_ms = int(
+                                (monotonic() - thinking_started_at) * 1000
+                            )
+                            yield _sse(
+                                {
+                                    "type": "thinking_complete",
+                                    "thinking_duration_ms": thinking_duration_ms,
+                                }
+                            )
+                        content_parts.append(str(event["content"]))
                     yield _sse(event)
 
                 agentic_result = await agentic_task
                 rag_parents = agentic_result.references
-                content_parts.append(agentic_result.answer)
-                thinking_duration_ms = int((monotonic() - thinking_started_at) * 1000)
-                yield _sse(
-                    {
-                        "type": "thinking_complete",
-                        "thinking_duration_ms": thinking_duration_ms,
-                    }
-                )
-                yield _sse({"type": "delta", "content": agentic_result.answer})
+                if not content_parts and agentic_result.answer:
+                    if thinking_duration_ms is None:
+                        thinking_duration_ms = int(
+                            (monotonic() - thinking_started_at) * 1000
+                        )
+                        yield _sse(
+                            {
+                                "type": "thinking_complete",
+                                "thinking_duration_ms": thinking_duration_ms,
+                            }
+                        )
+                    content_parts.append(agentic_result.answer)
+                    yield _sse({"type": "delta", "content": agentic_result.answer})
             else:
                 stream = await client.chat.completions.create(
                     model=model,
                     messages=model_messages,
-                    max_tokens=THINKING_TOKEN_BUDGETS[request.thinking_level],
+                    max_tokens=get_completion_max_tokens(request.thinking_level),
                     temperature=0.7,
                     extra_body=get_thinking_parameters(model, request.thinking_level),
                     stream=True,
@@ -241,8 +261,6 @@ async def stream_chat_response(
         finally:
             if stream is not None:
                 await stream.close()
-            if client is not None:
-                await client.close()
 
         content = "".join(content_parts)
         reasoning_content = "".join(reasoning_parts)
@@ -252,7 +270,8 @@ async def stream_chat_response(
             MessageReference.model_validate(parent.model_dump(mode="json"))
             for parent in rag_parents
         ]
-        add_message(
+        # 只有生成正常结束后才持久化 assistant，避免半截输出污染历史。
+        await add_message(
             thread.id,
             "assistant",
             content,
@@ -261,7 +280,7 @@ async def stream_chat_response(
             references=references,
             message_id=assistant_message_id,
         )
-        latest_thread = get_thread(thread.id)
+        latest_thread = await get_thread(thread.id)
         yield _sse(
             {
                 "type": "done",

@@ -1,3 +1,5 @@
+"""读取 PDF、TXT、MD 文档，并统一整理为 LangChain Document。"""
+
 import hashlib
 import re
 from io import BytesIO
@@ -17,14 +19,17 @@ _LIST_ITEM = re.compile(r"^（[一二三四五六七八九十]+）")
 
 
 def get_file_hash(path: Path) -> str:
+    """计算文件内容哈希，用于判断文档是否发生变化。"""
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def get_document_id(file_hash: str) -> str:
+    """把文件哈希前缀转换为稳定的文档 UUID。"""
     return str(UUID(file_hash[:32]))
 
 
 def list_document_paths(documents_dir: Path) -> list[Path]:
+    """列出知识库目录下支持的文档，并按路径稳定排序。"""
     return sorted(
         path
         for path in documents_dir.iterdir()
@@ -33,6 +38,7 @@ def list_document_paths(documents_dir: Path) -> list[Path]:
 
 
 def _remove_extraction_spaces(line: str) -> str:
+    """去除 PDF 提取时插入在中文字符之间的无意义空格。"""
     line = re.sub(
         r"(?<=[\u3400-\u4dbf\u4e00-\u9fff0-9]) +(?=[\u3400-\u4dbf\u4e00-\u9fff0-9，。；：、？！）》」』）])",
         "",
@@ -43,6 +49,7 @@ def _remove_extraction_spaces(line: str) -> str:
 
 
 def _normalize_pdf_text(text: str) -> str:
+    """合并 PDF 断行，同时保留条款、章节和列表等结构边界。"""
     text = text.replace("\r\n", "\n").replace("\u3000", " ")
     text = re.sub(
         r"(?m)^\s*[—-]\s*\n\s*\d+\s*\n\s*[—-]\s*$",
@@ -94,6 +101,7 @@ def _normalize_pdf_text(text: str) -> str:
 
 
 def load_document(path: Path) -> list[Document]:
+    """加载单个文件；PDF 按页返回，文本文件返回一个无页码文档。"""
     file_bytes = path.read_bytes()
     file_hash = hashlib.sha256(file_bytes).hexdigest()
     base_metadata = {

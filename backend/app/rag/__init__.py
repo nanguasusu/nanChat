@@ -1,1 +1,1 @@
-"""Offline knowledge-base ingestion and independent retrieval."""
+"""离线知识库入库与独立检索功能。"""

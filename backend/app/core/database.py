@@ -1,9 +1,11 @@
-import os
-import sqlite3
-from contextlib import contextmanager
-from pathlib import Path
-from typing import Iterator
+"""提供 SQLite 连接上下文和应用启动时的数据库初始化。"""
 
+import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+import aiosqlite
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -11,27 +13,7 @@ load_dotenv()
 DEFAULT_DATABASE_PATH = Path(__file__).resolve().parents[2] / "data" / "ai_chat.db"
 DATABASE_PATH = Path(os.getenv("SQLITE_DB_PATH", str(DEFAULT_DATABASE_PATH)))
 
-
-@contextmanager
-def get_connection() -> Iterator[sqlite3.Connection]:
-    DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-    try:
-        yield connection
-        connection.commit()
-    except Exception:
-        connection.rollback()
-        raise
-    finally:
-        connection.close()
-
-
-def init_database() -> None:
-    with get_connection() as connection:
-        connection.executescript(
-            """
+_SCHEMA = """
             CREATE TABLE IF NOT EXISTS threads (
                 id TEXT PRIMARY KEY,
                 title TEXT NOT NULL,
@@ -82,21 +64,44 @@ def init_database() -> None:
             CREATE INDEX IF NOT EXISTS idx_parent_chunks_document_chunk_index
                 ON parent_chunks (document_id, chunk_index);
             """
-        )
 
-        message_columns = {
-            row["name"]
-            for row in connection.execute("PRAGMA table_info(messages)").fetchall()
-        }
+
+@asynccontextmanager
+async def get_connection() -> AsyncIterator[aiosqlite.Connection]:
+    """创建带事务边界的 SQLite 连接，成功提交、异常回滚。"""
+    DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    connection = await aiosqlite.connect(DATABASE_PATH)
+    connection.row_factory = aiosqlite.Row
+    await connection.execute("PRAGMA foreign_keys = ON")
+    await connection.execute("PRAGMA journal_mode = WAL")
+    await connection.execute("PRAGMA busy_timeout = 5000")
+    try:
+        yield connection
+        await connection.commit()
+    except Exception:
+        await connection.rollback()
+        raise
+    finally:
+        await connection.close()
+
+
+async def init_database() -> None:
+    """创建当前版本所需的表和索引，并补齐旧库新增字段。"""
+    DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    async with get_connection() as connection:
+        await connection.executescript(_SCHEMA)
+
+        cursor = await connection.execute("PRAGMA table_info(messages)")
+        message_columns = {row["name"] for row in await cursor.fetchall()}
         if "reasoning_content" not in message_columns:
-            connection.execute(
+            await connection.execute(
                 "ALTER TABLE messages ADD COLUMN reasoning_content TEXT NOT NULL DEFAULT ''"
             )
         if "thinking_duration_ms" not in message_columns:
-            connection.execute(
+            await connection.execute(
                 "ALTER TABLE messages ADD COLUMN thinking_duration_ms INTEGER NOT NULL DEFAULT 0"
             )
         if "references_json" not in message_columns:
-            connection.execute(
+            await connection.execute(
                 "ALTER TABLE messages ADD COLUMN references_json TEXT NOT NULL DEFAULT '[]'"
             )

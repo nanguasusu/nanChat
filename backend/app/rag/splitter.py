@@ -1,3 +1,5 @@
+"""旧版单层切分工具，保留供兼容调用方使用。"""
+
 import hashlib
 from uuid import UUID
 
@@ -8,6 +10,7 @@ from app.core.config import get_rag_settings
 
 
 def split_documents(documents: list[Document]) -> list[Document]:
+    """按配置切分文档，并为每个片段补充稳定索引和 UUID。"""
     settings = get_rag_settings()
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=settings.chunk_size,

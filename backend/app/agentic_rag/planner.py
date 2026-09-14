@@ -1,3 +1,5 @@
+"""调用模型生成 Agentic RAG 的检索计划，并约束任务规模。"""
+
 import json
 import logging
 import re
@@ -14,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 def _json_object(content: str) -> dict[str, object]:
+    """解析裸 JSON 或 Markdown 代码围栏中的 JSON 对象。"""
     fenced = re.search(r"```(?:json)?\s*(\{.*\})\s*```", content, re.DOTALL)
     return json.loads(fenced.group(1) if fenced else content)
 
@@ -29,6 +32,7 @@ async def create_plan(
     max_scope_tasks: int,
     allow_scope: bool,
 ) -> RetrievalPlan:
+    """根据初始资料和探索结果生成受限的检索任务计划。"""
     recent_history = history[-4:]
     prompt = f"""你是企业知识库检索规划器。只输出严格 JSON，不要输出解释或 Markdown。
 
@@ -44,7 +48,7 @@ async def create_plan(
 输出结构：
 {{"scope_only": false, "scope_resolution": "", "resolved_query": "...", "tasks": [{{"id": "t1", "question": "...", "query": "..."}}], "synthesis_instruction": "..."}}
 
-规则：初始检索只是语料库样本，没出现不代表不存在。若样本已完整回答，tasks 为空。只为缺失信息创建任务，不要过度拆分，优先 1-3 个，最多 {max_tasks} 个。question 是任务模型要回答的问题，query 是发给检索器的简短自然查询，二者用途不同。禁止生成同义改写式重复任务。
+规则：初始检索只是语料库样本，没出现不代表不存在。若样本已完整回答，tasks 为空。只为缺失信息创建任务，不要过度拆分，优先 1-3 个，最多 {max_tasks} 个。初始资料已经能完整回答的子问题不要再生成检索任务。question 是任务模型要回答的问题，query 是发给检索器的简短自然查询，二者用途不同。禁止生成同义改写式重复任务，query 不要只是原始问题的换一种说法。
 若问题要求完整、穷尽、全面覆盖，且样本不能确定语料范围，可设置 scope_only=true，以最多 {max_scope_tasks} 个任务探索相关类别或条文；探索任务不直接回答最终问题。当前允许范围探索：{str(allow_scope).lower()}。若不允许，scope_only 必须为 false，并依据探索结果产生最终回答任务。"""
     try:
         response = await client.chat.completions.create(

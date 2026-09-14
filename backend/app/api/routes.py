@@ -1,3 +1,5 @@
+"""对外暴露健康检查、聊天、知识库检索和会话管理接口。"""
+
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 
@@ -26,11 +28,13 @@ router = APIRouter()
 
 @router.get("/health", response_model=HealthResponse)
 async def health_check() -> HealthResponse:
+    """返回服务进程可用状态。"""
     return HealthResponse(status="ok")
 
 
 @router.post("/api/chat")
 async def chat(request: ChatRequest, http_request: Request) -> StreamingResponse:
+    """以 SSE 形式转发聊天生成过程，保持连接可及时推送增量事件。"""
     return StreamingResponse(
         stream_chat_response(request, http_request),
         media_type="text/event-stream",
@@ -44,6 +48,7 @@ async def chat(request: ChatRequest, http_request: Request) -> StreamingResponse
 
 @router.post("/api/rag/search", response_model=RagSearchResponse)
 async def search_knowledge_base(request: RagSearchRequest) -> RagSearchResponse:
+    """执行独立的知识库检索，统一转换配置和基础设施错误。"""
     try:
         results = await retrieve(request.query, request.k)
     except RAGConfigurationError as error:
@@ -58,11 +63,13 @@ async def search_knowledge_base(request: RagSearchRequest) -> RagSearchResponse:
 
 @router.get("/api/threads", response_model=list[ThreadResponse])
 async def get_threads() -> list[ThreadResponse]:
-    return list_threads()
+    """按最近更新时间返回会话列表。"""
+    return await list_threads()
 
 
 @router.get("/api/models", response_model=list[ModelResponse])
 async def get_models() -> list[ModelResponse]:
+    """返回当前后端实际启用的模型及其思考档位。"""
     model = get_configured_model()
     label = "GLM-5.3 Flash" if model == "glm-5.3-flash" else model
     return [
@@ -77,8 +84,9 @@ async def get_models() -> list[ModelResponse]:
 
 @router.delete("/api/threads/{thread_id}", status_code=204)
 async def remove_thread(thread_id: str) -> Response:
+    """删除会话及其级联消息。"""
     try:
-        delete_thread(thread_id)
+        await delete_thread(thread_id)
     except ThreadNotFoundError as error:
         raise HTTPException(status_code=404, detail="Thread not found.") from error
     return Response(status_code=204)
@@ -86,7 +94,8 @@ async def remove_thread(thread_id: str) -> Response:
 
 @router.get("/api/threads/{thread_id}/messages", response_model=list[MessageResponse])
 async def get_thread_messages(thread_id: str) -> list[MessageResponse]:
+    """返回指定会话的历史消息。"""
     try:
-        return list_messages(thread_id)
+        return await list_messages(thread_id)
     except ThreadNotFoundError as error:
         raise HTTPException(status_code=404, detail="Thread not found.") from error

@@ -4,7 +4,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from app.agentic_rag.executor import execute_task, execute_tasks, merge_references
+from app.agentic_rag.executor import EvidencePool, execute_task, execute_tasks, merge_references
 from app.agentic_rag.graph import run_agentic_rag
 from app.agentic_rag.schemas import (
     AgenticRagResult,
@@ -13,10 +13,12 @@ from app.agentic_rag.schemas import (
     SeedQueryResult,
     TaskAnswer,
 )
+from app.rag.retrieval_service import clear_retrieval_cache, retrieve
 from app.rag.schemas import RetrievedParent
 from app.schemas.chat import ChatRequest
 from app.schemas.thread import MessageResponse, ThreadResponse
 from app.services.chat_service import stream_chat_response
+from app.services.model_params import ANSWER_TOKEN_BUDGET, get_completion_max_tokens
 
 
 def parent(parent_id: str, score: float = 0.8) -> RetrievedParent:
@@ -201,11 +203,121 @@ class TaskExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([item.parent_id for item in merged], ["p1", "p2"])
         self.assertEqual(merged[0].score, 0.9)
 
+    async def test_shared_evidence_skips_retrieve_when_complete(self) -> None:
+        task = PlanTask(id="t1", question="条件？", query="条件")
+        pool = EvidencePool([parent("p1")])
+        with (
+            patch("app.agentic_rag.executor.retrieve", AsyncMock()) as retrieval,
+            patch(
+                "app.agentic_rag.executor._answer_task",
+                AsyncMock(return_value=TaskAnswer(completeness="complete", answer="已有证据")),
+            ),
+        ):
+            result = await execute_task(
+                object(), "model", task, 2, no_stage, evidence_pool=pool
+            )
+
+        retrieval.assert_not_awaited()
+        self.assertEqual(result.status, "complete")
+        self.assertEqual(result.attempts, 0)
+        self.assertEqual(result.answer, "已有证据")
+        self.assertEqual([item.parent_id for item in result.references], ["p1"])
+
+    async def test_shared_evidence_partial_retrieves_seed_query_once(self) -> None:
+        task = PlanTask(id="t1", question="条件和顺序？", query="条件")
+        pool = EvidencePool([parent("p1")])
+        with (
+            patch(
+                "app.agentic_rag.executor.retrieve",
+                AsyncMock(return_value=[parent("p2")]),
+            ) as retrieval,
+            patch(
+                "app.agentic_rag.executor._answer_task",
+                AsyncMock(
+                    side_effect=[
+                        TaskAnswer(completeness="partial", answer="已有条件", missing="顺序"),
+                        TaskAnswer(completeness="complete", answer="条件和顺序"),
+                    ]
+                ),
+            ),
+            patch(
+                "app.agentic_rag.executor._seed_query",
+                AsyncMock(
+                    return_value=SeedQueryResult(
+                        query="继承 优先顺序", stop=False, reason="补缺"
+                    )
+                ),
+            ) as seed,
+        ):
+            result = await execute_task(
+                object(), "model", task, 2, no_stage, evidence_pool=pool
+            )
+
+        retrieval.assert_awaited_once_with("继承 优先顺序")
+        seed.assert_awaited_once()
+        self.assertEqual(result.attempts, 1)
+        self.assertEqual(result.status, "complete")
+        self.assertEqual([item.parent_id for item in result.references], ["p1", "p2"])
+
+
+class RetrievalCacheTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        clear_retrieval_cache()
+
+    def tearDown(self) -> None:
+        clear_retrieval_cache()
+
+    async def test_exact_query_reuses_cached_search(self) -> None:
+        results = [parent("p1")]
+        settings = SimpleNamespace(rerank_parent_top_k=4)
+        embeddings = SimpleNamespace(aembed_query=AsyncMock(return_value=[1.0, 0.0]))
+        with (
+            patch("app.rag.retrieval_service.get_rag_settings", return_value=settings),
+            patch("app.rag.retrieval_service.get_embeddings", return_value=embeddings),
+            patch(
+                "app.rag.retrieval_service._search_knowledge_base",
+                AsyncMock(return_value=results),
+            ) as search,
+        ):
+            first = await retrieve("法定继承顺序")
+            second = await retrieve("  法定继承顺序  ")
+
+        self.assertEqual(search.await_count, 1)
+        self.assertEqual(embeddings.aembed_query.await_count, 1)
+        self.assertEqual([item.parent_id for item in first], ["p1"])
+        self.assertEqual([item.parent_id for item in second], ["p1"])
+
+    async def test_near_duplicate_query_hits_semantic_cache(self) -> None:
+        results = [parent("p1")]
+        settings = SimpleNamespace(rerank_parent_top_k=4)
+        embeddings = SimpleNamespace(
+            aembed_query=AsyncMock(side_effect=[[1.0, 0.0], [0.99, 0.01]])
+        )
+        with (
+            patch("app.rag.retrieval_service.get_rag_settings", return_value=settings),
+            patch("app.rag.retrieval_service.get_embeddings", return_value=embeddings),
+            patch(
+                "app.rag.retrieval_service._search_knowledge_base",
+                AsyncMock(return_value=results),
+            ) as search,
+        ):
+            await retrieve("法定继承顺序")
+            reused = await retrieve("法定继承 适用条件")
+
+        self.assertEqual(search.await_count, 1)
+        self.assertEqual(embeddings.aembed_query.await_count, 2)
+        self.assertEqual([item.parent_id for item in reused], ["p1"])
+
 
 class RegressionContractTests(unittest.TestCase):
     def test_standard_rag_remains_default(self) -> None:
         request = ChatRequest(message="问题", rag_enabled=True)
         self.assertEqual(request.rag_mode, "standard")
+
+    def test_completion_max_tokens_keeps_answer_budget_besides_thinking(self) -> None:
+        self.assertEqual(get_completion_max_tokens("off"), 1024 + ANSWER_TOKEN_BUDGET)
+        self.assertEqual(get_completion_max_tokens("low"), 1024 + ANSWER_TOKEN_BUDGET)
+        self.assertEqual(get_completion_max_tokens("xhigh"), 8192 + ANSWER_TOKEN_BUDGET)
 
 
 class StandardRagServiceTests(unittest.IsolatedAsyncioTestCase):
@@ -239,10 +351,13 @@ class StandardRagServiceTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch("app.services.chat_service.get_longcat_settings", return_value=object()),
             patch("app.services.chat_service.get_longcat_client", return_value=client),
-            patch("app.services.chat_service.create_thread_with_message", return_value=thread),
-            patch("app.services.chat_service.get_thread", return_value=thread),
-            patch("app.services.chat_service.list_messages", return_value=history),
-            patch("app.services.chat_service.add_message"),
+            patch(
+                "app.services.chat_service.create_thread_with_message",
+                AsyncMock(return_value=thread),
+            ),
+            patch("app.services.chat_service.get_thread", AsyncMock(return_value=thread)),
+            patch("app.services.chat_service.list_messages", AsyncMock(return_value=history)),
+            patch("app.services.chat_service.add_message", AsyncMock()),
             patch("app.services.chat_service.retrieve", AsyncMock(return_value=[parent("p1")])) as retrieval,
             patch("app.services.chat_service.run_agentic_rag", AsyncMock()) as agentic,
         ):
@@ -257,6 +372,7 @@ class StandardRagServiceTests(unittest.IsolatedAsyncioTestCase):
         events = [json.loads(chunk.removeprefix("data: ")) for chunk in chunks]
         retrieval.assert_awaited_once_with("问题")
         agentic.assert_not_awaited()
+        self.assertEqual(completion_create.await_args.kwargs["max_tokens"], 6144)
         self.assertEqual(events[0]["type"], "start")
         self.assertEqual(events[-1]["type"], "done")
         self.assertEqual(events[-1]["references"][0]["parent_id"], "p1")
@@ -285,10 +401,13 @@ class StandardRagServiceTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch("app.services.chat_service.get_longcat_settings", return_value=object()),
             patch("app.services.chat_service.get_longcat_client", return_value=client),
-            patch("app.services.chat_service.create_thread_with_message", return_value=thread),
-            patch("app.services.chat_service.get_thread", return_value=thread),
-            patch("app.services.chat_service.list_messages", return_value=history),
-            patch("app.services.chat_service.add_message"),
+            patch(
+                "app.services.chat_service.create_thread_with_message",
+                AsyncMock(return_value=thread),
+            ),
+            patch("app.services.chat_service.get_thread", AsyncMock(return_value=thread)),
+            patch("app.services.chat_service.list_messages", AsyncMock(return_value=history)),
+            patch("app.services.chat_service.add_message", AsyncMock()),
             patch("app.services.chat_service.run_agentic_rag", agentic_run),
             patch("app.services.chat_service.rewrite_query", AsyncMock()) as rewrite,
         ):
@@ -312,6 +431,58 @@ class StandardRagServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[-1]["references"][0]["parent_id"], "p1")
         client.chat.completions.create.assert_not_awaited()
         rewrite.assert_not_awaited()
+
+    async def test_agentic_mode_streams_synthesis_deltas_without_duplicating(self):
+        client = SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=AsyncMock())),
+            close=AsyncMock(),
+        )
+        thread = ThreadResponse(
+            id="thread-1",
+            title="问题",
+            created_at="2026-09-13T00:00:00+00:00",
+            updated_at="2026-09-13T00:00:00+00:00",
+        )
+        history = [MessageResponse(id="user-1", role="user", content="问题")]
+        http_request = SimpleNamespace(is_disconnected=AsyncMock(return_value=False))
+
+        async def agentic_run(
+            question, history, client, model, callback, on_answer_delta=None, **kwargs
+        ):
+            await callback("synthesis", "start")
+            await on_answer_delta("合")
+            await on_answer_delta("成")
+            return AgenticRagResult(answer="合成", references=[parent("p1")])
+
+        with (
+            patch("app.services.chat_service.get_longcat_settings", return_value=object()),
+            patch("app.services.chat_service.get_longcat_client", return_value=client),
+            patch(
+                "app.services.chat_service.create_thread_with_message",
+                AsyncMock(return_value=thread),
+            ),
+            patch("app.services.chat_service.get_thread", AsyncMock(return_value=thread)),
+            patch("app.services.chat_service.list_messages", AsyncMock(return_value=history)),
+            patch("app.services.chat_service.add_message", AsyncMock()),
+            patch("app.services.chat_service.run_agentic_rag", agentic_run),
+        ):
+            chunks = [
+                chunk
+                async for chunk in stream_chat_response(
+                    ChatRequest(message="问题", rag_enabled=True, rag_mode="agentic"),
+                    http_request,
+                )
+            ]
+
+        events = [json.loads(chunk.removeprefix("data: ")) for chunk in chunks]
+        deltas = [event["content"] for event in events if event["type"] == "delta"]
+        self.assertEqual(deltas, ["合", "成"])
+        thinking = next(event for event in events if event["type"] == "thinking_complete")
+        first_delta_index = next(
+            index for index, event in enumerate(events) if event["type"] == "delta"
+        )
+        thinking_index = events.index(thinking)
+        self.assertLess(thinking_index, first_delta_index)
 
 
 if __name__ == "__main__":

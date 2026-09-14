@@ -1,8 +1,10 @@
+"""管理 Qdrant 混合向量 collection 及 Child 的索引生命周期。"""
+
 from langchain_core.documents import Document
-from qdrant_client import QdrantClient
 from qdrant_client import models
 from qdrant_client.models import FieldCondition, Filter, MatchValue
 
+from app.core.clients import get_qdrant_client
 from app.core.config import RAGConfigurationError, get_rag_settings
 from app.rag.chunking import ChildChunk
 from app.rag.embeddings import get_embeddings
@@ -14,23 +16,28 @@ BM25_MODEL = "Qdrant/bm25"
 BM25_OPTIONS = {"tokenizer": "multilingual"}
 INDEX_BATCH_SIZE = 64
 
+_validated_collection: str | None = None
+
 
 class KnowledgeBaseNotFoundError(RuntimeError):
-    """Raised when the configured Qdrant collection has not been built."""
+    """配置的 Qdrant collection 尚未创建时抛出。"""
 
 
 class KnowledgeBaseUnavailableError(RuntimeError):
-    """Raised when the configured Qdrant service cannot be reached."""
+    """Qdrant 不可达或 collection 结构不兼容时抛出。"""
 
 
-def get_qdrant_client() -> QdrantClient:
+def reset_qdrant_validation() -> None:
+    """清除 collection 结构校验缓存，使下一次访问重新校验。"""
+    global _validated_collection
+    _validated_collection = None
+
+
+async def _validate_hybrid_collection() -> None:
+    """确认 collection 同时包含 dense 和 BM25 sparse 两种向量。"""
     settings = get_rag_settings()
-    return QdrantClient(url=settings.qdrant_url)
-
-
-def _validate_hybrid_collection(client: QdrantClient) -> None:
-    settings = get_rag_settings()
-    collection = client.get_collection(settings.qdrant_collection)
+    client = get_qdrant_client()
+    collection = await client.get_collection(settings.qdrant_collection)
     params = collection.config.params
     vectors = params.vectors
     sparse_vectors = params.sparse_vectors
@@ -45,11 +52,16 @@ def _validate_hybrid_collection(client: QdrantClient) -> None:
         )
 
 
-def get_existing_qdrant_client() -> QdrantClient:
+async def get_existing_qdrant_client():
+    """返回已构建且结构兼容的 collection 客户端。"""
+    global _validated_collection
     settings = get_rag_settings()
     client = get_qdrant_client()
+    if _validated_collection == settings.qdrant_collection:
+        return client
+
     try:
-        collection_exists = client.collection_exists(settings.qdrant_collection)
+        collection_exists = await client.collection_exists(settings.qdrant_collection)
     except Exception as error:
         raise KnowledgeBaseUnavailableError(
             "无法连接 Qdrant，请确认 Qdrant 正在运行且 QDRANT_URL 配置正确。"
@@ -61,23 +73,24 @@ def get_existing_qdrant_client() -> QdrantClient:
         )
 
     try:
-        _validate_hybrid_collection(client)
+        await _validate_hybrid_collection()
     except KnowledgeBaseUnavailableError:
         raise
     except Exception as error:
         raise KnowledgeBaseUnavailableError(
             "读取 Qdrant collection 失败，请确认 collection 配置与 embedding 模型一致。"
         ) from error
+
+    _validated_collection = settings.qdrant_collection
     return client
 
 
-def _ensure_hybrid_collection(
-    client: QdrantClient,
-    dense_vector_size: int,
-) -> None:
+async def _ensure_hybrid_collection(dense_vector_size: int) -> None:
+    """按当前 embedding 维度创建 collection，或校验已有 collection。"""
     settings = get_rag_settings()
-    if not client.collection_exists(settings.qdrant_collection):
-        client.create_collection(
+    client = get_qdrant_client()
+    if not await client.collection_exists(settings.qdrant_collection):
+        await client.create_collection(
             collection_name=settings.qdrant_collection,
             vectors_config={
                 DENSE_VECTOR_NAME: models.VectorParams(
@@ -91,10 +104,11 @@ def _ensure_hybrid_collection(
                 )
             },
         )
+        reset_qdrant_validation()
         return
 
-    _validate_hybrid_collection(client)
-    collection = client.get_collection(settings.qdrant_collection)
+    await _validate_hybrid_collection()
+    collection = await client.get_collection(settings.qdrant_collection)
     dense_vector = collection.config.params.vectors[DENSE_VECTOR_NAME]
     if dense_vector.size != dense_vector_size:
         raise KnowledgeBaseUnavailableError(
@@ -102,7 +116,8 @@ def _ensure_hybrid_collection(
         )
 
 
-def index_child_chunks(children: list[ChildChunk]) -> int:
+async def index_child_chunks(children: list[ChildChunk]) -> int:
+    """批量生成 Child 向量并写入 Qdrant。"""
     if not children:
         return 0
 
@@ -128,10 +143,14 @@ def index_child_chunks(children: list[ChildChunk]) -> int:
     ]
 
     try:
-        dense_vectors = embeddings.embed_documents(
-            [document.page_content for document in documents]
-        )
-        _ensure_hybrid_collection(client, len(dense_vectors[0]))
+        # Embedding 分批请求，Qdrant 写入也分批进行，避免单次 payload 过大。
+        dense_vectors: list[list[float]] = []
+        texts = [document.page_content for document in documents]
+        for start in range(0, len(texts), INDEX_BATCH_SIZE):
+            dense_vectors.extend(
+                await embeddings.aembed_documents(texts[start : start + INDEX_BATCH_SIZE])
+            )
+        await _ensure_hybrid_collection(len(dense_vectors[0]))
         points = [
             models.PointStruct(
                 id=child.child_id,
@@ -156,7 +175,7 @@ def index_child_chunks(children: list[ChildChunk]) -> int:
             )
         ]
         for start in range(0, len(points), INDEX_BATCH_SIZE):
-            client.upsert(
+            await client.upsert(
                 collection_name=settings.qdrant_collection,
                 points=points[start : start + INDEX_BATCH_SIZE],
             )
@@ -170,16 +189,17 @@ def index_child_chunks(children: list[ChildChunk]) -> int:
     return len(documents)
 
 
-def delete_points_by_document_ids(document_ids: list[str]) -> None:
+async def delete_points_by_document_ids(document_ids: list[str]) -> None:
+    """删除指定文档产生的全部 Child points。"""
     if not document_ids:
         return
 
     settings = get_rag_settings()
     client = get_qdrant_client()
     try:
-        if not client.collection_exists(settings.qdrant_collection):
+        if not await client.collection_exists(settings.qdrant_collection):
             return
-        client.delete(
+        await client.delete(
             collection_name=settings.qdrant_collection,
             points_selector=Filter(
                 should=[
@@ -197,12 +217,14 @@ def delete_points_by_document_ids(document_ids: list[str]) -> None:
         ) from error
 
 
-def delete_collection() -> None:
+async def delete_collection() -> None:
+    """删除当前知识库 collection，并使结构校验缓存失效。"""
     settings = get_rag_settings()
     client = get_qdrant_client()
     try:
-        if client.collection_exists(settings.qdrant_collection):
-            client.delete_collection(settings.qdrant_collection)
+        if await client.collection_exists(settings.qdrant_collection):
+            await client.delete_collection(settings.qdrant_collection)
+        reset_qdrant_validation()
     except Exception as error:
         raise KnowledgeBaseUnavailableError(
             "删除 Qdrant collection 失败，请确认 Qdrant 正在运行。"

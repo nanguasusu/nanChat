@@ -1,3 +1,5 @@
+"""提供 Standard RAG 可选的查询改写步骤。"""
+
 import logging
 
 from openai import AsyncOpenAI, OpenAIError
@@ -18,6 +20,7 @@ async def rewrite_query(
     message: str,
     history: list[dict[str, str]],
 ) -> str:
+    """结合最近对话补全检索 query，失败时保留原始问题。"""
     context = history[-4:]
     try:
         response = await client.chat.completions.create(

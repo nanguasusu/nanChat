@@ -1,3 +1,5 @@
+"""Agentic RAG 的公开入口。"""
+
 from app.agentic_rag.graph import run_agentic_rag
 from app.agentic_rag.schemas import AgenticRagResult
 
